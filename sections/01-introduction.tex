@@ -1,37 +1,39 @@
 \section{Introduction}
 \label{sec:intro}
 
-A proxy often forwards a message unchanged. A cache may send the same value to many
-clients. Ordinary socket I/O moves payload through application memory even when
-the application only needs to decide what to keep and where to send it. These copies
-consume CPU time and memory bandwidth~\cite{cai21,libra}. We want applications to
-reuse data where the kernel already holds it, while keeping protocol processing in
-the Linux network stack.
+I/O data passes through the kernel on its way between an application and a device.
+A proxy may forward that data unchanged, yet ordinary socket I/O copies it into
+application memory and back, using CPU time and memory bandwidth~\cite{cai21,libra}.
+Zero-copy sends can avoid the second copy by borrowing application pages. The kernel
+uses pinned pages and tells the application when they may be reused~\cite{msgzerocopy,sendzcdoc}.
+The loan can outlast device completion because TCP may keep the bytes for retransmission.
 
-Linux already offers ways to avoid these copies. \splice transfers bytes through a pipe,
-\sendfile sends file ranges, and registered buffers can be used for both direct I/O and
-zero-copy sends~\cite{spliceapi,sendfileapi,sendzcdoc}. These interfaces give different
-ways to name data and decide when it can be reused. A send from an application buffer,
-for example, can finish queueing bytes before it is safe to overwrite the buffer.
+Lending receive buffers to an application raises a protection problem. An application
+can change any byte in a writable mapping, including packet headers that arrive in
+the buffers. Some zero-copy receive interfaces use hardware to place headers in
+separate memory and steer flows to application-specific queues~\cite{zcrx,maio}.
+We show how software can isolate kernel control state while letting a trusted
+application edit I/O data on commodity network devices.
 
-\sys applies one principle across these paths: \emph{lend, don't borrow}. The kernel
-owns the pages and gives the application a handle naming the data. The application
-decides which bytes to retain and where they go. Endpoints keep their own I/O semantics,
-while the same object interface carries bytes between operations. A store holds
-completed objects independently of the socket or device operation that produced them.
+\sys follows the principle \emph{lend, don't borrow}. The kernel owns the pages and
+gives the application a handle naming the data. The application decides which bytes to
+keep and where to send them. Linux continues to process TCP and UDP, and an object can
+outlive the socket or device operation that produced it. The application can release
+its handle while outstanding I/O holds references to the pages. The kernel reclaims
+the pages when those references are gone. The application still receives I/O results,
+and the kernel handles reclamation without a separate buffer-reuse notification.
 
 \paragraph{Named mode.} Applications use handles to read selected bytes, retain objects
 and direct later I/O. The kernel checks each operation and leaves the underlying pages
 unmapped. Socket capture can use ordinary receive buffers and existing drivers.
 Authority to access a socket or block device is separate from authority to use an object.
 
-\paragraph{Mapped mode.} Applications that need direct access can map a dedicated I/O
-area to read or edit data in place. Kernel control structures remain private. For
-networking, the kernel also parses private header copies. The driver supplies the area
-in software. Both network modes are \emph{hardware-agnostic} because they work
-without NIC support for header splitting or per-application flow steering.
-The mapper must be trusted with the data in its area and must coordinate changes with
-ongoing I/O. A device-wide receive area requires trust with the device's traffic.
+\paragraph{Mapped mode.} Trusted applications can read and edit buffers in a dedicated
+I/O area. Kernel control structures and the header copies used for parsing stay in
+private memory. The network driver supplies receive buffers from that area. Both modes
+work without hardware header splitting or per-application flow steering. A mapper must be
+trusted with the entire area, which can include all traffic on a device. It must keep
+bytes stable while outstanding I/O uses them.
 
 TCP, UDP and block I/O illustrate how the same two access modes apply to different
 endpoints. A TCP relay can retain a range after a connection closes. A UDP relay handles

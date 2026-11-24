@@ -71,8 +71,10 @@ The shared design separates three lifetimes:
 \end{enumerate}
 
 Submission alone does not protect a handle against concurrent release. Keeping it through
-completion is a simple discipline for non-consuming requests. Each admitted TCP send has
-its own position in the segment chain, so destinations can progress independently.
+completion is a simple discipline for non-consuming requests. Once the application has
+released the handle, the kernel manages storage reclamation without a separate notification
+to the application. Each admitted TCP send has its own position in the segment chain, so
+destinations can progress independently.
 
 \paragraph{CPU-local recycling.} A magazine allocator~\cite{magazines} keeps free entries in
 small batches. Each possible CPU has separate pairs of batches for tasks and soft interrupts.
