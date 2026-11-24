@@ -1,0 +1,381 @@
+% The long form of §8, as it stood on 2026-11-10 before the section was reorganized by direction
+% (receive, send, forwarding; full speed, against message size, on one core and on several: the
+% owner, 2026-11-10; outline.md "§8 Evaluation, by direction"). NOT \input by main.tex.
+%
+% It is kept because it holds, with their CLAIMS rows, the paragraphs the short form leaves out:
+% the eight methodology traps, the paced cells, the full transmit table (tab:tx), the send path's
+% mechanism rows (S7-S9, S13-S25), the splice series (N1-N3) and compaction's history (F3). To
+% bring a paragraph back, move it into 08-evaluation.tex; its figure (figures/tx.tex with the
+% paced panel) is at git revision 1f81527.
+%
+% ---------------------------------------------------------------------------------------------
+% §8, 3.25 pages, in the order of the title (outline.md "§8 Evaluation, in the order of the
+% title"). Every number is a CLAIMS.md row, quoted as written, with its status: pinned and
+% measured rows are results; in-placement rows say so; argued rows say "by design"; pending and
+% unmeasured rows are \todom. Row ids are in comments.
+\section{Evaluation}
+\label{sec:eval}
+
+The evaluation follows the title. \S\ref{sec:eval:method} says how we measure, because measuring
+zero copy honestly turned out to need care. \S\ref{sec:eval:ubiquitous} asks where each
+mechanism gives zero copy at all. \S\ref{sec:eval:tx} measures the absent overhead on the send
+path, where every mechanism can be compared on one machine. \S\ref{sec:eval:fwd},
+\S\ref{sec:eval:retention} and \S\ref{sec:eval:store} measure what lent memory can do:
+forwarding, holding and fan-out, and the store.
+
+\subsection{Measuring zero copy honestly}
+\label{sec:eval:method}
+
+\paragraph{Testbed.} Three virtual machines in a public cloud, each with two virtio-net
+interfaces and a 25\,Gbps allocation per interface, form a triangle: a source, the machine
+under test, and a sink, with the two data legs on separate interfaces. The machine under test
+is a two-socket guest; its data-path threads are pinned, and the NIC's interrupts are pinned
+to the same socket. The kernels are the evaluation kernel of \S\ref{sec:impl}, on Linux
+7.3-rc6; the source runs a stock kernel. \todov{machine shapes, vCPU counts and link rates at submission}
+
+\paragraph{Metric.} The cost we report is the whole host's CPU time per gigabyte delivered,
+measured as total minus idle over all CPUs of the machine under test, with the data-path
+process's own share alongside. Process accounting alone makes kernel-resident mechanisms look
+free, because softirq work lands on whichever CPU takes the interrupt and sockmap's data path
+runs entirely in softirq and a kernel worker. Throughput is bytes delivered at the sink; paced
+runs hold a fixed rate so that mechanisms are compared at equal offered load, since unpaced
+runs flatter mechanisms with large per-operation costs. Every cell is three runs.
+
+\paragraph{Eight traps.} Each would have changed a conclusion, and each is a methodology point
+for anyone measuring zero copy on Linux. (1)~\emph{Interrupt time booked as idle.} On the 7.3
+kernels, interrupt and softirq work on a tickless idle CPU counts as idle unless interrupt-time
+accounting is enabled, and the idle loop over-counts idle by part of a tick per sleep, so
+``total minus idle'' under-reports every receive-side cost. We enable interrupt-time
+accounting, measure idle from idle entry to idle exit, and validate the accounting on each
+kernel with a pinned thread of known runtime and a NIC interrupt CPU of known load before any
+campaign. (2)~\emph{The packet tap.} A DHCP client on every stock cloud image holds a packet
+socket on each interface, and a zero-copy packet must be copied before it is cloned for a tap:
+every \sendzc on these machines was silently a copy until the tap was taken out of the transmit
+path. With the interrupts pinned, the tap costs \sendzc 15\% at 1\KiB and 32\% at 4\KiB at
+0.5\GBs, 41\% at 1\GBs with 64\KiB, and 60--149\% at full speed; it costs the named mode
+1--5\%. % CLAIMS F7, pinned
+(3)~\emph{The usage report.} \iouring's report of which zero-copy sends were copied over-counts
+copies when several sends share a packet, so we count real copies with a probe on the kernel's
+one copy routine instead. (4)~\emph{Interleaving.} Several zero-copy sends in flight on one
+socket interleave their bytes under backpressure, because the kernel retries a partial send by
+itself; a stream verified byte by byte exposed it. Every sender here keeps order with linked
+requests or one request in flight, and every run verifies the stream at the sink.
+(5)~\emph{Interrupt placement.} Where a host's NIC interrupts land, chosen by the interrupt
+balancer and RSS at random per run, moves CPU per gigabyte by 10--25\% for every sender, which
+is larger than several effects reported in the literature; the campaigns below pin the
+interrupts, and earlier campaigns are read within one placement. Pinning them on the wrong node
+is worse than leaving them to chance: with every interrupt on the remote NUMA node, every
+zero-copy sender costs 20--52\% more per gigabyte and the copying sender 33--97\% more, while
+the differences between senders stay in the same range. % CLAIMS M1, M2, M3
+(6)~\emph{Withheld notifications.} At 1\KiB paced, \iouring's notification stacking withholds
+\sendzc's buffer-reuse notifications for most of a run: each send joins the notification chain
+of the unsent tail packet, and the chain completes only when the write queue drains, so most
+runs deliver no notification in the measurement window and the rest deliver over a hundred
+thousand at once and overflow the completion queue. A paced 1\KiB \sendzc baseline is therefore
+not steady unless the chains are bounded, and every \sendzc sender below bounds them with
+\code{MSG\_EOR} every megabyte. Bounding also cut the non-vectored \sendzc senders' cost at
+0.5\GBs, by 17\% and 18\% for the unregistered sender at 1 and 4\KiB and by 6\% and 17\% for
+the registered one, all of it in the sending process, although at 4\KiB nothing was withheld:
+long chains cost by themselves. The named mode has no notification to bound.
+% CLAIMS S16, measured
+(7)~\emph{The sender's slow state.} The sender's vCPU enters, at random, a state in which
+everything on it costs 15--30\% more, for every kernel and sender: memory latency is 12--27\%
+higher and VM exits 19--35\% more frequent, while register loops are unchanged. It held 6 of
+36, 11 of 35 and 6 of 36 runs on three kernels at 1\KiB paced. Paced cells are classified by
+the sender CPU's level and read in the fast state with the slow runs counted; the paced numbers
+below are means over all runs, and where leaving the slow runs out moves one by more than a
+point we say so. % CLAIMS M5, pinned
+(8)~\emph{The copy's two costs.} On the receiving machine, \code{recv()}'s copy has two costs,
+drawn per run and set by nothing the guest controls: the same kernel, boot and receive queue
+give both. The dear copy costs 0.103--0.104 CPU-seconds per gigabyte more in the receiving
+process and 0.118--0.141 on the host; it held 11 of 18 paced runs on one kernel, with none
+between the two, and 14 of 18 on another, with one between. Only the receiver that reads the
+payload splits: next to a cheap and a dear \code{recv()} run alike, the other receivers cost
+0.96--1.05 of their own medians. We infer, without having measured it, that the host's
+placement of the data sets the cost. Every comparison against \code{recv()} below says which
+copy it is against. % CLAIMS M6, measured
+
+\subsection{Ubiquitous}
+\label{sec:eval:ubiquitous}
+
+\paragraph{Where zero copy registers.} \todom{the availability table across physical and
+virtual drivers, VMs of three clouds, loopback and veth: whether zero-copy receive registers,
+whether the mapped mode registers, and the share of bytes the named mode captures by reference}
+On the virtio-net interfaces of all three machines, with the zero-copy receive code built in,
+registering a receive queue is refused with \code{EOPNOTSUPP}: the driver has no header/data
+split and no flow steering, and the refusal is the device's, since a nonexistent interface
+returns \code{ENODEV}. The named mode runs on the same interfaces unchanged, and every result in
+this paper was measured there. % CLAIMS F5, measured
+
+\paragraph{Receive on virtio-net.} Four receivers take the same streams on the receiving
+machine: \code{recv()}; a named sink that discards what arrives, so that bytes are dropped in
+the kernel and never reach the process; named capture, which takes each chunk as an object and
+frees it; and the mapped mode, one multishot zero-copy receive with slots returned through the
+refill ring. With a copying sender on the other machine, the receivers interleaved in time
+and six runs per cell over three boots, the discarding sink costs the receiving host
+0.285--0.302 CPU-seconds per gigabyte at 0.5 and 1\GBs. \code{recv()} costs 0.471--0.492 in
+the eleven runs whose copy was dear (trap 8), 1.61--1.65$\times$ the sink's cost and
+2.36--2.49$\times$ its cost in the receiving process, and 0.330--0.374 in the seven whose copy
+was cheap, 1.16--1.26$\times$ and 1.39--1.52$\times$. % CLAIMS F4, pinned (paced cells)
+The mapped mode costs the host 24.2--26.5\% less than named capture with the copying sender
+and 19--27\% less with an object sender, paced, and 35\% less in the fast full-speed regime.
+The whole difference is the receiving process, which builds no objects and frees no pages;
+outside the process the two are within 0.005 CPU-seconds per gigabyte. Binding the named store
+to the mapped-mode area does not close that gap, since the per-page object work remains: bound
+capture costs within 2\% of unbound, and the discarding sink is cheaper than all of them.
+% CLAIMS F9, pinned
+A later series of four commits to capture, in the evaluation kernel only, which releases
+backings by kind, allocates extent chunks in blocks, holds pool pages by a reference on the
+pool and takes over the fragments of a consumed packet, cuts named capture's full-speed cost by
+11\% and bound capture's by 14\% in
+the fast regime, with the three controls moving between $-$0.1\% and $+$5.8\%, and narrows the
+mapped mode's lead there from 35\% to 23\%; paced, named capture moves within the controls'
+spread and the lead is 18.0--27.5\%. % CLAIMS F12, pinned, before the review fixes
+% The cheaper-capture series is a follow-up, not in the RFC (docs/design_spec.md §7(11) as it
+% stood on 2026-11-07: git show eaec3af:docs/design_spec.md).
+Full-speed receive on these machines falls into three regimes per run, two of them separated
+by three times the receive interrupts per megabyte, where every receiver's cost outside the
+process doubles; only the fast regime is compared. With the driver change of
+\S\ref{sec:mapped}, the mode registers on the same interfaces on which the hardware mode is
+refused, its streams verified byte for byte with every byte by
+reference, and on the kernel with the area-release fix every one of 244 runs completed,
+registrations included (\S\ref{sec:mapped}). % CLAIMS F6, F9
+\todom{the regimes' cause; the copying NODEV mode; named capture's cost per chunk, which the
+receive-side profile attributes to per-fragment accounting and page references and which is
+not yet a claim row}
+
+\paragraph{Where hardware zero-copy receive runs.} \todom{on a header-split NIC: the relay at
+parity with zero-copy receive plus zero-copy send, and the holding, fan-out and density cases
+where the mapped designs copy or starve (W2, Q2)}
+
+\subsection{Zero copy without overhead}
+\label{sec:eval:tx}
+
+The send side compares every mechanism on one host sending one stream.
+Figure~\ref{fig:tx} plots, and Table~\ref{tab:tx} gives, CPU per gigabyte on the machine under
+test for the senders, paced and at full speed, from 1\KiB to 1\MiB: a copying \code{send()}; \sendzc with an unregistered buffer, pinned per send,
+in linked chains of eight; \sendzc with a registered buffer in the same chains; the registered
+vectored \sendzc, eight buffers in one request, with one request in flight and in chains; the
+named mode with one object per send and eight in flight; and the named vectored send, eight
+ranges in one request, with one and with eight in flight. Every \sendzc sender bounds its
+notification chains (trap 6). The registered \sendzc never rewrites its buffer, so it never
+waits for a notification: it is zero copy's best case, and in all but name it is kernel-owned
+memory.
+
+\input{figures/tx}
+
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}llrrrrrrrr@{}}
+\toprule
+rate & size & \code{send()} & \sendzc pinned & \sendzc reg. & reg. vec8 d1 & reg. vec8 d8 & named & named vec8 d1 & named vec8 d8 \\
+\midrule
+0.5\GBs & 1\KiB & \textbf{0.700} & 1.513 & 1.349 & 0.979 & 0.968 & 1.368 & 1.069 & 1.019 \\
+0.5\GBs & 4\KiB & 0.409 & 0.413 & 0.363 & 0.296 & 0.287 & 0.380 & 0.302 & \textbf{0.279} \\
+1\GBs & 16\KiB & 0.344 & 0.284 & 0.271 & 0.250 & 0.259 & 0.266 & 0.250 & \textbf{0.237} \\
+1\GBs & 64\KiB & 0.316 & 0.268 & 0.260 & 0.248 & 0.238 & 0.232 & 0.237 & \textbf{0.225} \\
+full & 1\KiB & 1.300 & -- & -- & 0.367 & \textbf{0.337} & 1.348 & 0.412 & 0.379 \\
+full & 4\KiB & 0.293 & 0.360 & 0.190 & 0.106 & \textbf{0.097} & 0.308 & 0.113 & 0.104 \\
+full & 16\KiB & 0.170 & 0.130 & 0.104 & 0.083 & 0.090 & 0.102 & 0.074 & \textbf{0.071} \\
+full & 64\KiB & 0.158 & 0.101 & 0.083 & 0.073 & 0.067 & 0.076 & 0.067 & \textbf{0.066} \\
+full & 256\KiB & 0.145 & 0.084 & 0.072 & \textbf{0.064} & 0.067 & 0.066 & 0.065 & 0.066 \\
+full & 1\MiB & 0.148 & 0.087 & 0.065 & 0.063 & 0.063 & 0.063 & 0.066 & \textbf{0.061} \\
+\bottomrule
+\end{tabular}
+\caption{Sender CPU in CPU-seconds per gigabyte delivered, whole host, interrupts pinned, three
+runs per cell, every \sendzc sender with bounded notification chains; the cheapest sender per
+row in bold. ``d1'' and ``d8'' are one and eight requests in flight; ``vec8'' is eight buffers
+or ranges per request. The two non-vectored \sendzc senders at 1\KiB full speed are left out:
+the comparison is unresolved there, the pinned sender's nine runs, with bounded chains, a
+larger completion queue and unbounded, spreading from 1.27 to 4.61. \msgzc and \sendfile are
+compared in the text. \todom{the mapped mode's pages sent through the binding}}
+\label{tab:tx}
+\end{table*}
+
+\paragraph{The pin.} Against \sendzc that pins per send, like for like, one object per send
+against one buffer per send, the named mode is 6--27\% cheaper: at full speed 15\% at 4\KiB,
+22\% at 16\KiB, 24\% at 64\KiB, 22\% at 256\KiB and 27\% at 1\MiB; paced, 10\%, 8\%, 6\% and
+13\% from 1 to 64\KiB. At 1\KiB full speed the comparison is unresolved: the named mode's runs
+lie between 1.22 and 1.43 CPU-seconds per gigabyte, and the pinned sender's nine runs, with
+bounded chains, a larger completion queue and unbounded, between 1.27 and 4.61.
+% CLAIMS S1, pinned
+Pinning itself costs \sendzc 17--90\% at full speed against its own registered buffer from
+4\KiB, 90\% at 4\KiB, 25\% at 16\KiB, 22\% at 64\KiB, 17\% at 256\KiB and 33\% at 1\MiB, and
+3--14\% paced, or 17\% at 1\KiB and 3\% at 16\KiB without the slow runs (trap 7).
+% CLAIMS S2, pinned
+
+\paragraph{The notification.} \sendzc and \msgzc senders must keep a buffer unchanged until its
+notification arrives, and an application that reuses buffers waits for it; the named mode's
+objects are immutable kernel data and need no reuse tracking. By design, no sender here
+measures that wait, since none rewrites its buffer. % CLAIMS S10, argued
+\msgzc, the blocking \code{send()} with the zero-copy flag and one buffer per call, pays the
+pin, the notification through the error queue and a system call per buffer. Against it the named
+mode is 7--48\% cheaper like for like in buffer size: at full speed 24\% at 1\KiB, 31\% at
+4\KiB, 48\% at 16\KiB, 46\% at 64\KiB, 33\% at 256\KiB and 12\% at 1\MiB, and 7--14\%
+paced. % CLAIMS S11, pinned
+
+\paragraph{Against the best case.} Against the registered, never-rewritten buffer, batched like
+for like, eight ranges against eight buffers per request, the named mode ties from 16\KiB and
+when paced: at full speed from 16\KiB between 21\% cheaper and 4\% dearer, with the 21\% at
+16\KiB and eight in flight, where \sendzc's three runs spread from 0.076 to 0.106; paced,
+between 8\% cheaper and 9\% dearer over all runs, and between 11\% cheaper and 4.5\% dearer
+without the runs in the sender's slow state (trap 7). At 1--4\KiB saturation it costs 6--12\%
+more: 12\% at 1\KiB with one request in flight and with eight, 6\% and 8\% at 4\KiB.
+% CLAIMS S3, pinned
+Two causes suggested themselves, both named in \S\ref{sec:named:send}: a page reference per fragment that
+the registered buffer's managed fragments avoid, and a competitor that sleeps. \sendzc charges a
+full page of send buffer for every sub-page fragment, so at 1\KiB only 23\% of its charged bytes
+are data, against 93\% for the named mode; its send queue stops near 1\,MB at saturation and it
+sleeps about 31\% of the time, which keeps it off the socket lock. % CLAIMS S9, measured
+Doing the named mode's per-send bookkeeping with the socket owned narrowed the gap within one
+campaign from 28--29\% to 10--18\% at 1\KiB and from 20--30\% to 12.5--20\% at 4\KiB; the lock
+holders are TCP's own deferred transmits, which can only start while the socket is unowned.
+% CLAIMS S7 (pinned), S8 (in-placement probes)
+Changing TCP's autocork policy for fragment-limited streams, in two experiment kernels, moved
+neither sender beyond its run-to-run spread and did not narrow the gap; with \sendzc's chains
+bounded, the gap is the 6--12\% above. % CLAIMS M4, pinned
+
+\paragraph{The special case.} With the packet tap of \S\ref{sec:eval:method} in the transmit
+path, \sendzc's pages are copied and the named mode's are cloned: the tap costs \sendzc
+15\%, 32\% and 41\% paced and 60--149\% at full speed, and the named mode 1--5\%
+(\S\ref{sec:eval:method}, trap 2). % CLAIMS F7, pinned
+A \sendzc request can opt out of that copy on a development branch of \iouring that manages
+its fragments; a tap then copies none of its packets and costs it 2.5\% at 1\KiB, 2\% at 4\KiB
+and 3\% at 64\KiB paced and between 3\% less and 9\% more at full speed, and with the tap out
+of the path it costs within 4\% of plain \sendzc. Managed fragments for
+the named mode's sends, one folio reference per packet instead of a page reference per
+fragment, save 0--5\%, and taps still do not copy them; what is left of the 1--4\KiB gap to
+the registered buffer is the sending process's own CPU, not the fragments.
+% CLAIMS S13, S14, pinned
+On contiguous ranges the named mode's fragments coalesce and the registered buffer's
+managed fragments never do: eight consecutive 1\KiB ranges per request cost the named mode 60\%
+less than \sendzc at 0.5\GBs and 11\% less at full speed; at 4\KiB it costs 5\% less paced and
+the registered buffer is 11\% cheaper at full speed. % CLAIMS S4, pinned
+
+\paragraph{What remains.} Profiles of the sending thread put the rest of the small-send gap in
+the named mode's request path, not in its model. Fixing the managed fill cut the fill's own
+work but moved no end-to-end number, and prepaying folio references per send moves the
+per-packet stall instead of removing it, so prepaying is dropped.
+% CLAIMS S15, pinned; prepay removed from the development branch (ledger 42)
+Fixing the request's issue path instead, admission in one pass, a checked copy-in loop and one
+message-header zeroing per issue, cut the request from 54 to 37 CPU-milliseconds per gigabyte
+at 1\KiB full speed and from 63 to 43 paced, to within 5 CPU-milliseconds per gigabyte of
+\sendzc's request at full speed and within 1 at 4\KiB; end to end that is about 2\% of the
+host's CPU at 1\KiB paced, below what total minus idle resolves at four runs per kernel.
+% CLAIMS S17, pinned (the commits are on the development branch, without prepay)
+A further set of commits on the send's request state changes no paced cell beyond the
+run-to-run spread. % CLAIMS S18, pinned (development branch, without prepay)
+What is left of the single-object operation, 132--145\,ns per send, is mostly decisions of the
+design: the request count's two locked instructions, the object table's mutex, the unpin and
+the ordering come to 62--70\,ns, against 30--33\,ns for \sendzc's operation and 86--98\,ns for
+its notification and completion work. The unpin is an atomic only because these senders send
+the same objects again; on a relay's last send of an object, which detaches it, there is no
+atomic to remove. % CLAIMS S19, pinned (the unpin note: ledger 43)
+Removing the request count with its limit and making the table's lock a spinlock since took
+14--17\,ns per send off the operation at 1\KiB, of the 20--25 estimated; part of it reappears
+in \iouring's core and in TCP's transmit path, and end to end the named mode moved between
+$-$3.4\% and 0 in the paced cells while the controls moved between $-$4.9\% and $+$2.7\%.
+% CLAIMS S20, pinned
+All of these changes are in the evaluation kernel only; the series of \S\ref{sec:impl} has no
+request count either, but keeps the table's mutex. % design_spec.md §2.2, §2.7, §7(8), §7(11) as of 2026-11-07 (git show eaec3af:docs/design_spec.md)
+
+\paragraph{Vectoring and the break-even.} Eight ranges in one request make the named mode
+3.6$\times$ cheaper at 1\KiB full speed and 3.0$\times$ at 4\KiB than one object per send, and
+1.3--1.4$\times$ paced; the copying \code{send()} gains the same way from one request per eight
+buffers. % CLAIMS S5, pinned
+Against copying, the named mode is 40--57\% cheaper from 16\KiB at full speed and its vectored
+send 62--71\% cheaper at 1--4\KiB. But at 0.5\GBs with 1\KiB messages, copying is the cheapest
+sender of all, 0.700 against 0.968--1.513 for every zero-copy sender, and one object per send
+costs about what \code{send()} does at 1 and 4\KiB full speed, 4\% and 5\% more, within the
+named mode's spread: every zero-copy path pays a fixed cost per operation, and below the
+break-even the copy of a kilobyte is cheaper than the cheapest of them. % CLAIMS S6, pinned
+
+\paragraph{Against \sendfile.} The page cache with \sendfile is the kernel's own way to send held
+data by reference, and the baseline that a cache built on files would use. Sending one object
+per request, the named mode costs 28--39\% less than \sendfile from a page cache of 4\KiB
+folios at full speed from 64\KiB to 1\MiB, and 10\% less at 1\GBs. % CLAIMS S12, pinned
+An earlier version of the splice series of \S\ref{sec:impl} took a 64\KiB packet from 16
+fragments to 2, for \sendfile from large folios and for object sends alike. It made object
+sends 24\% cheaper at 64\KiB full speed, 14\% at 256\KiB and 5\% at 1\GBs, and \sendfile
+from 64\KiB folios 11\% cheaper at full speed and 5\% at 1\GBs, while \sendfile from
+4\KiB folios did not change; the series as prepared has not been measured.
+% CLAIMS N1, N2, N3 (an earlier implementation; design_spec.md §4.3)
+
+\subsection{Forwarding}
+\label{sec:eval:fwd}
+
+The relay of \S\ref{sec:apps} forwards one stream through the machine under test, with plain
+endpoints on the other two machines, at 1\GBs and at full speed.
+
+% Corrected 2026-11-11: this form said that the named relay ran with inline compaction and copied
+% every captured byte once, that the paced cost was that copy, and that binding removed it. The
+% relay sends no COMPACT request and copies nothing (CLAIMS F1).
+\paragraph{Parity with in-kernel forwarding.} The named relay forwards by reference and copies
+nothing. It costs
+11\% more CPU per gigabyte than \splice at 0.5 and 1\GBs, and 4\% more at full speed, where
+it delivers 21\% more, 2.38 against 1.96\GBs; against the copying relay it costs 2--5\% more
+paced and 23\% less at full speed. % CLAIMS F1, pinned; the 21% is not attributed to the relay
+
+\paragraph{Forwarding from lent memory.} Binding the relay's store to a mapped-mode area keeps
+captured bytes in the area, and the relay then costs
+14\% less CPU per gigabyte than \splice at 0.5\GBs, 15\% less at 1\GBs and 16\% less at
+full speed at equal throughput, which is 22--24\% less than the unbound named relay. A plain
+mapped-mode relay, zero-copy receive into \sendzc with a pin per send and each buffer returned
+after its notification, costs 15\% and 17\% less than
+\splice paced and 30\% less at full speed while delivering 11\% less. With the sink on the
+mapped mode as well, the relay costs 19\% less at 1\GBs and 22\% less at full speed than
+with both ends named. Small transactions do not gain: bound, the relay's median is
+150\,$\mu$s against 142 for \splice, and it spends 19\% more CPU per transaction, as the
+unbound relay does. % CLAIMS F10, pinned
+
+\paragraph{Request/response.} Sixty-four-byte transactions see a median of 59\,$\mu$s
+direct and 146--159\,$\mu$s through any of the forwarders: the network hop sets the latency,
+not the forwarder. Per million transactions the machine under test spends 30.8 CPU-seconds
+with the copying relay, 32.9 with \splice, 28.9 with sockmap and 37.0 with the named relay,
+which is 12--20\% more than \splice or the copying relay: the price of a name, paid per small
+transaction (\S\ref{sec:lending:cost}). % CLAIMS F8, pinned
+
+\paragraph{What the in-kernel alternatives give up.} Sockmap's redirect has no backpressure: a
+verdict program appends each packet to the egress socket's queue with no length or memory
+limit, so the ingress connection is acknowledged as fast as the verdict runs and the queue
+grows in kernel memory, invisible from userspace and uncharged to TCP's memory accounting.
+At full speed it delivered 0.64--1.08\GBs with the queue growing in every run, and paced it was
+the dearest zero-copy forwarder, 11--50\% over the named relay; with the interrupts pinned it
+is the dearest forwarder at every rate and delivers 0.81\GBs at full speed with an erratic
+cost. % CLAIMS F2, measured; F1, pinned
+A correct teardown needs a workaround: the only way to know the queue is drained is to wait for
+the egress socket's acknowledged byte count to cover every redirected byte.
+
+\paragraph{Compaction.} Compaction with a cold destination, cut at every fragment and run from an
+unbound worker, cost 2.1$\times$ a relay that copies every byte twice; the redesign of
+\S\ref{sec:named:memory}, one copy per contiguous run into recycled store-owned units on the
+forwarder's own CPU, cut it by 26--33\%, and its round-trip latency fell to that of the named
+relay without compaction. % CLAIMS F3, measured
+\todom{compaction's remaining cost over the plain named relay on the final kernel, and its
+effect on data-path latency while it runs (H2)}
+
+\paragraph{Keep, mirror, replay.} \todom{the capability demonstration: a relay that keeps the
+body, mirrors it to a second backend and replays it after a backend failure, against a copying
+proxy that buffers for retry; \splice cannot, \code{tee} mirrors within a pipe (X4)}
+
+\subsection{Retention}
+\label{sec:eval:retention}
+
+\todom{holding at equal memory: bytes pinned per payload byte by driver and value size, with
+compaction off and on, and capacity at equal physical memory against the copying store (H1);
+fan-out: memory and CPU against $N$ receivers for one object, against a copy per receiver, a
+RAM file with \sendfile and \splice with \code{tee} (X3, H4); density: applications per NIC,
+unlimited in the named mode, one per device in the mapped mode and a queue each for zero-copy
+receive (W3); behaviour at the budget: slow and hostile readers, holding past the budget,
+teardown (H3)}
+
+\subsection{The store}
+\label{sec:eval:store}
+
+\todom{the store with its data path switched between copy, zero-copy send, a RAM file with
+\sendfile, \splice with \code{tee}, zero-copy receive and the named mode, under equal memory
+budgets; then against Redis, Valkey and memcached from tens of bytes to megabytes: CPU per
+request and per gigabyte against value size in one figure, throughput, tail latency, capacity
+at equal memory (X2, X5)}

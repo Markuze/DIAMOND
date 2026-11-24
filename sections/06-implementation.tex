@@ -1,0 +1,57 @@
+% Sources: docs/status-and-lineage.md, fixed-objects/IMPLEMENTATION.md and component READMEs.
+% Distinguish historical prototypes, fixed-pool kernels and the unmeasured CPU-context design.
+\section{Implementation}
+\label{sec:impl}
+
+Both modes have working interfaces. Three versions must be distinguished: historical
+prototypes, later fixed-pool kernels, and the current CPU/context-local design.
+
+\paragraph{Named mode.} A prepared kernel series and liburing helpers implement the
+interface. The networking core supplies TCP's exclusive receive claim; \iouring collects
+bytes through \code{tcp\_read\_sock} and sends page references through the existing splice
+path. No driver change is required.
+
+\paragraph{Mapped mode.} Development kernels implement the kernel-allocated
+receive area, virtio-net support, raw \recvzc access and store binding, including the
+private-header integration of \S\ref{sec:mapped}. This code belongs
+to the mapped development lineage, outside the prepared named-mode series.
+
+\paragraph{Shared support.} An independent splice-helper series reduces splitting of eligible
+large-page ranges for object sends and \sendfile. Neither mode depends on it. A stream
+library supports the benchmarks, relays and store of \S\ref{sec:apps}.
+
+\paragraph{Recorded checks.} Checks cover patch application, compilation and focused unit
+tests. The final standalone named series has scoped user-mode Linux (UML) unit-test
+qualification; that does not establish native multicore or performance behavior.
+Splice-helper tests cover final source and memory errors.
+Mapped checks exercise
+byte integrity, writes to mapped virtio control fields during receive, outside page
+references, re-registration and teardown. These bounded checks do not validate arbitrary
+drivers, parsers or concurrent payload edits.
+
+\paragraph{Historical measurements.} Earlier Linux prototypes allocate object metadata
+and page records at runtime, use byte admission with waiting requests, and support
+compaction. Their mapped path reclaims pages through a per-page waiting queue. They do not
+evaluate the current design.
+
+\paragraph{Fixed-pool kernels.} Later kernels preallocate metadata and owned buffers, with
+recorded functional checks. Their provisional send/receive measurements remain unqualified.
+They retain per-registration caches and interrupt-masking return paths, rather than the
+pairs of \S\ref{sec:lending:objects}. Known mapped-path defects and an open reclamation
+gate also prevent treating those measurements as validation of the final mapped design.
+
+\paragraph{Current design and remaining work.} The CPU/context-local revision has passed
+source review with caveats; follow-up fixes and integration remain. It is not installed or
+measured. Cache hits do not mask interrupts or bottom halves;
+shared-pool access still locks. This design targets conventional, non-real-time kernels;
+\code{PREEMPT\_RT} remains unqualified. The mapped receive pool uses its separate cache
+discipline (\S\ref{sec:mapped}).
+
+The final design's pool sizing and accounting need reconciliation with each selected build,
+including copied payload, request and framing storage. Object preallocation is not a claim
+that TCP allocates nothing. Integration, exhaustion and reclamation checks must pass before
+the campaigns of \S\ref{sec:eval:planned}; compaction remains deferred in the design.
+\todom{qualify CPU/context-local recycling, its memory provisioning and final mapped reclamation;
+replace provisional and historical data only with recorded, qualified campaigns}
+\todod{add the paper's coding-assistance disclosure, consistent with the patchsets and
+submission requirements}

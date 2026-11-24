@@ -1,0 +1,16 @@
+% Trust boundaries motivate two peer modes; keep the abstract within 200 words.
+% Numerical headlines await qualified campaign updates; do not cite provisional tables.
+Zero-copy receive must protect kernel state and restrict access to other applications'
+traffic. Hardware-assisted TCP receive uses header split and flow steering to enforce these
+boundaries. \sys (\sysfull) instead applies \emph{lend, don't borrow}: the kernel
+keeps payload in its memory and lends access in two modes. The \emph{named mode} gives
+unprivileged applications handles to plaintext TCP ranges for copied reads, retention and
+concurrent range sends, without mappings or driver changes. The \emph{mapped mode} gives
+trusted applications writable I/O pages, segregated from kernel control state and private
+header copies. It requires software driver integration, device-wide trust and coordinated
+writes. Neither mode requires hardware header split or per-application flow steering.
+Both preserve kernel TCP and manage object lifetimes independently of connections;
+fallback copies and unused buffer space remain costs. Linux prototypes implement both
+modes on virtio-net. Earlier campaigns expose CPU and retained-capacity tradeoffs, but do
+not evaluate the current CPU-local recycling and mapped reclamation design. Its qualified
+performance evaluation, including payload editing, remains open.

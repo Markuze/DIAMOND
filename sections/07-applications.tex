@@ -1,0 +1,54 @@
+% Concrete application flows, checked against apps/fwdbase/fb_opaque.c,
+% apps/obench/obench.c, apps/okvs/okvs.c and the evaluation plans.
+% Implemented benchmark modes are not evidence for unmeasured application scenarios.
+\section{Applications}
+\label{sec:apps}
+
+\paragraph{Named forwarding.} Our framed benchmark relay parses a copied length header,
+discards it and captures the body. It sends the object to a configured destination with a
+generated length prefix, marking the send as its last use. The parser uses the same stream
+library with copying or object storage.
+
+The forwarding experiments use a byte-stream relay: query available bytes, capture them
+and send with the last-use flag, in both directions. A limit on bytes awaiting completion
+lets a slow destination slow input through TCP flow control.
+
+\paragraph{Mapped forwarding and processing.} The implemented bound relay uses the same
+operations with a store bound to the I/O area, forwarding unchanged bytes. A trusted
+application could query an object's extents, validate the area offsets and read those bytes
+directly. The kernel reclaims buffers after all holders release them; no raw receive
+references are returned by the application.
+
+An editing extension, neither implemented nor measured, could replace a fixed-width
+application field while the relay exclusively owns the captured range. Keeping the length
+preserves framing. The relay would send by handle, avoid edits while those bytes might
+still be in use, and stop accessing extents before releasing or transferring the handle.
+
+The implemented raw mapped relay instead uses \recvzc and \sendzc, pins each send's buffers
+and returns receive references after buffer-reuse notifications. Copying, \splice and sockmap
+relays provide the comparisons in \S\ref{sec:eval:fwd}.
+
+\paragraph{Named storage.} Our store implements the memcached text protocol. A
+\code{SET} parses the command line to obtain the key and value length,
+discards the command bytes, and captures the value as an object. It validates the trailing
+delimiter before adding the value to the index. The application keeps the key, expiry time
+and replacement policy; the kernel keeps the value's bytes.
+
+On a \code{GET} hit, it sends the held value with a generated response header and trailer.
+Repeated readers share the value. A pending reply keeps an application reference until its
+send completes, so replacement or eviction does not invalidate that reply. Expired entries
+are misses; eviction follows a least-recently-used policy adjusted under memory pressure.
+
+The same server selects copying, named or mapped-bound storage while keeping its parser and
+index. An optional small-value path keeps values in application memory. The public build has
+one worker. An experimental multiworker version shares the keyspace and budget; its recorded
+named/copy functional checks do not qualify performance, and mapped qualification remains pending.
+
+\paragraph{Further workloads.} The benchmark tool implements retention and fan-out modes;
+their performance remains unmeasured. A proxy demonstration that combines retention, mirroring and
+replay after a backend failure remains planned.
+
+Store performance comparisons and qualification of mapped and multiworker paths remain pending
+(\S\ref{sec:eval:planned}).
+\todom{measure mapped reading and editing, retained-object reuse and fan-out; evaluate the
+planned proxy scenario and store variants on the revised build}

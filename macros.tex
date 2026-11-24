@@ -1,0 +1,71 @@
+% Macros shared by every section. \sys keeps the system name consistent throughout the paper.
+\usepackage{xspace}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{array}
+\usepackage{pifont}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepgfplotslibrary{groupplots}
+\newcommand{\yes}{\ding{51}}
+\newcommand{\no}{\ding{55}}
+
+\newcommand{\sys}{DIOMND\xspace}    % the owner's name, 2026-11-03 ("I said use DIOMND")
+\newcommand{\sysfull}{dedicated I/O memory for network devices\xspace}   % its expansion at first use (abstract, §1)
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\recvzc}{\code{RECV\_ZC}\xspace}
+\newcommand{\sendzc}{\code{SEND\_ZC}\xspace}
+\newcommand{\msgzc}{\code{MSG\_ZEROCOPY}\xspace}
+\newcommand{\iouring}{\code{io\_uring}\xspace}
+\newcommand{\splice}{\code{splice}\xspace}
+\newcommand{\sendfile}{\code{sendfile}\xspace}
+\newcommand{\capnetadmin}{\code{CAP\_NET\_ADMIN}\xspace}
+\newcommand{\KiB}{\,KiB\xspace}
+\newcommand{\MiB}{\,MiB\xspace}
+\newcommand{\GBs}{\,GB/s\xspace}
+
+% Draft markers, in the conventions of ../outline.md. \draftfalse hides them for submission.
+% \todom{} measure, \todod{} decide, \todov{} verify, \todo{} other. Since 2026-11-13 a marker
+% prints a numbered tag where it stands ([M7], [D3], [V2], [T1], one count across the kinds) and
+% its text goes to the list that \printdraftnotes sets after the references, so that the notes
+% take no room in the twelve pages and can be read as one list. The forms ending in "i"
+% (\todomi{}, \tododi{}, \todovi{}, \todoi{}) print the note where it stands: for figures and
+% captions, and for a paragraph that is only a note. Use those in moving arguments.
+\newif\ifdraft
+\drafttrue
+\newcommand{\todomi}[1]{\ifdraft\textcolor{red}{[measure: #1]}\fi}
+\newcommand{\tododi}[1]{\ifdraft\textcolor{blue}{[decide: #1]}\fi}
+\newcommand{\todovi}[1]{\ifdraft\textcolor{orange}{[verify: #1]}\fi}
+\newcommand{\todoi}[1]{\ifdraft\textcolor{purple}{[todo: #1]}\fi}
+\makeatletter
+\newcounter{draftnote}
+\gdef\draftnote@list{}
+% #1 colour, #2 the kind's letter, #3 the kind's word, #4 the note
+\newcommand{\draftnote@add}[4]{\ifdraft
+  \refstepcounter{draftnote}\label{dn:\thedraftnote}%
+  \textcolor{#1}{\footnotesize[#2\thedraftnote]}%
+  \begingroup\edef\x{\endgroup\noexpand\g@addto@macro\noexpand\draftnote@list{%
+    \noexpand\draftnote@item{#1}{#2}{#3}{\thedraftnote}}}\x
+  \g@addto@macro\draftnote@list{{#4}}%
+\fi}
+\newcommand{\draftnote@item}[5]{\item[\textcolor{#1}{[#2#4]}] \textcolor{#1}{#3}, page~\pageref{dn:#4}: #5}
+\newcommand{\todom}[1]{\draftnote@add{red}{M}{measure}{#1}}
+\newcommand{\todod}[1]{\draftnote@add{blue}{D}{decide}{#1}}
+\newcommand{\todov}[1]{\draftnote@add{orange}{V}{verify}{#1}}
+\newcommand{\todo}[1]{\draftnote@add{purple}{T}{todo}{#1}}
+% The list of the notes, after the references. Not part of the submission.
+\newcommand{\printdraftnotes}{\ifdraft\ifnum\value{draftnote}>0
+  \section*{Draft notes}
+  {\footnotesize Not part of the submission: \texttt{\string\draftfalse} removes this list and
+  the tags that point to it. M is a number to measure, D a decision, V a fact to verify.
+  \begin{list}{}{\setlength{\leftmargin}{2.6em}\setlength{\labelwidth}{2.2em}%
+    \setlength{\labelsep}{0.4em}\setlength{\itemsep}{1pt}\setlength{\parsep}{0pt}%
+    \setlength{\topsep}{3pt}}
+  \draftnote@list
+  \end{list}}
+\fi\fi}
+\makeatother
+
+% A boxed placeholder where a figure will go: \figplaceholder{height}{what the figure shows}.
+\newcommand{\figplaceholder}[2]{\fbox{\parbox[c][#1][c]{0.95\columnwidth}{\centering\small #2}}}

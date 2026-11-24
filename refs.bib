@@ -1,0 +1,368 @@
+% References. Keys follow ../prior-work.md and ../intro.md. Entries marked note = {TODO(verify)}
+% rest on RELATED_WORK.md or memory and must be checked against the source before submission.
+
+@inproceedings{cai21,
+  author    = {Qizhe Cai and Shubham Chaudhary and Midhul Vuppalapati and Jaehyun Hwang and Rachit Agarwal},
+  title     = {Understanding Host Network Stack Overheads},
+  booktitle = {Proceedings of the ACM SIGCOMM Conference},
+  year      = {2021}
+}
+
+@misc{libra,
+  author    = {Kairui Zhou and Shengkai Lin and Wei Zhang and Shizhen Zhao},
+  title     = {{Libra}: Accelerating Socket {I/O} via Programmable Selective Data Copying},
+  howpublished = {arXiv preprint, \url{https://arxiv.org/abs/2604.27686v1}},
+  year      = {2026}
+}
+
+@inproceedings{iolite,
+  author    = {Vivek S. Pai and Peter Druschel and Willy Zwaenepoel},
+  title     = {{IO-Lite}: A Unified {I/O} Buffering and Caching System},
+  booktitle = {Proceedings of the 3rd USENIX Symposium on Operating Systems Design and Implementation (OSDI)},
+  year      = {1999}
+}
+
+@inproceedings{fbufs,
+  author    = {Peter Druschel and Larry L. Peterson},
+  title     = {Fbufs: A High-Bandwidth Cross-Domain Transfer Facility},
+  booktitle = {Proceedings of the 14th ACM Symposium on Operating Systems Principles (SOSP)},
+  year      = {1993}
+}
+
+@inproceedings{cheetah,
+  author    = {M. Frans Kaashoek and Dawson R. Engler and Gregory R. Ganger and H{\'e}ctor M. Brice{\~n}o and Russell Hunt and David Mazi{\`e}res and Thomas Pinckney and Robert Grimm and John Jannotti and Kenneth Mackenzie},
+  title     = {Application Performance and Flexibility on Exokernel Systems},
+  booktitle = {Proceedings of the 16th ACM Symposium on Operating Systems Principles (SOSP)},
+  year      = {1997}
+}
+
+@inproceedings{paste,
+  author    = {Michio Honda and Giuseppe Lettieri and Lars Eggert and Douglas Santry},
+  title     = {{PASTE}: A Network Programming Interface for Non-Volatile Main Memory},
+  booktitle = {Proceedings of the 15th USENIX Symposium on Networked Systems Design and Implementation (NSDI)},
+  year      = {2018}
+}
+
+@misc{ublkzc,
+  author    = {{Linux kernel}},
+  title     = {Userspace Block Device Driver: Zero Copy},
+  howpublished = {Linux kernel documentation, \url{https://docs.kernel.org/6.18/block/ublk.html}}
+}
+
+@misc{zcrx,
+  author    = {David Wei and Pavel Begunkov},
+  title     = {{io\_uring} Zero Copy {Rx}},
+  howpublished = {Linux kernel documentation, \url{https://docs.kernel.org/networking/iou-zcrx.html}; merged in Linux 6.15},
+  year      = {2025}
+}
+
+@misc{zcrxcopy,
+  author    = {{Linux kernel}},
+  title     = {{io\_uring/zcrx.c}: copy fallback for fragments outside the zero-copy area},
+  howpublished = {Linux 7.3, \texttt{io\_zcrx\_copy\_frag}},
+  year      = {2026}
+}
+
+@misc{zcrxreg,
+  author    = {{Linux kernel contributors}},
+  title     = {{io\_uring} zero-copy receive registration},
+  howpublished = {\texttt{io\_register\_zcrx}, \url{https://github.com/torvalds/linux/blob/master/io_uring/zcrx.c}},
+  year      = {2026},
+  note      = {Accessed November 16, 2026}
+}
+
+@misc{zcrxdrivers,
+  author    = {{Anonymous}},
+  title     = {Census of the queue-management {API}, header/data split and unreadable-memory support in Linux 7.3 drivers},
+  howpublished = {Supplementary material},
+  year      = {2026}
+}
+
+@misc{devmem,
+  author    = {Mina Almasry},
+  title     = {Device Memory {TCP}},
+  howpublished = {Linux kernel documentation, \url{https://docs.kernel.org/networking/devmem.html}; merged in Linux 6.11},
+  year      = {2024}
+}
+
+@misc{afxdp,
+  author    = {{Linux kernel}},
+  title     = {{AF\_XDP}},
+  howpublished = {Linux kernel documentation, \url{https://docs.kernel.org/networking/af_xdp.html}},
+  year      = {2026},
+  note      = {TODO(verify): the zero-copy mode's copy of frames passed to the stack, in the drivers' \texttt{*\_construct\_skb\_zc}}
+}
+
+@misc{netkit,
+  author    = {Daniel Borkmann},
+  title     = {netkit: Support for {io\_uring} zero-copy and {AF\_XDP}},
+  howpublished = {Linux kernel patch series v11, netdev, \url{https://lore.kernel.org/netdev/}},
+  year      = {2026},
+  note      = {TODO(verify): merged release}
+}
+
+@misc{virtiopp,
+  author    = {Vishwanath Seshagiri},
+  title     = {{virtio\_net}: add {page\_pool} support},
+  howpublished = {Linux kernel patch series v11, netdev},
+  year      = {2026}
+}
+
+@misc{msgzerocopy,
+  author    = {Willem de Bruijn},
+  title     = {{MSG\_ZEROCOPY}},
+  howpublished = {Linux kernel documentation, \url{https://docs.kernel.org/networking/msg_zerocopy.html}},
+  year      = {2017}
+}
+
+@misc{tcpmmap,
+  author    = {Eric Dumazet},
+  title     = {{TCP} zero copy receive ({TCP\_ZEROCOPY\_RECEIVE})},
+  howpublished = {Linux kernel patch description, \url{https://lkml.rescloud.iu.edu/1804.3/04783.html}},
+  year      = {2018}
+}
+
+@misc{sockmap,
+  author    = {{Linux kernel}},
+  title     = {{BPF\_MAP\_TYPE\_SOCKMAP} and {BPF\_MAP\_TYPE\_SOCKHASH}},
+  howpublished = {Linux kernel documentation, \url{https://docs.kernel.org/bpf/map_sockmap.html}},
+  year      = {2026}
+}
+
+@misc{sendzcdoc,
+  author    = {{liburing project}},
+  title     = {{io\_uring\_prep\_send\_zc(3)}},
+  howpublished = {liburing manual, \url{https://man7.org/linux/man-pages/man3/io_uring_prep_send_zc.3.html}}
+}
+
+@misc{spliceapi,
+  author    = {{Linux man-pages project}},
+  title     = {{splice(2)} and {tee(2)}},
+  howpublished = {Linux manual pages, \url{https://man7.org/linux/man-pages/man2/splice.2.html} and \url{https://man7.org/linux/man-pages/man2/tee.2.html}}
+}
+
+@misc{sendfileapi,
+  author    = {{Linux man-pages project}},
+  title     = {{sendfile(2)}},
+  howpublished = {Linux manual page, \url{https://man7.org/linux/man-pages/man2/sendfile.2.html}}
+}
+
+@misc{vmspliceapi,
+  author    = {{Linux man-pages project}},
+  title     = {{vmsplice(2)}},
+  howpublished = {Linux manual page, \url{https://man7.org/linux/man-pages/man2/vmsplice.2.html}}
+}
+
+@inproceedings{maio,
+  author    = {Alex Markuze and Igor Golikov and Chen Dar},
+  title     = {Rethinking Zero-Copy Networking with {MAIO}},
+  booktitle = {Proceedings of Netdev 0x15},
+  year      = {2021}
+}
+
+@inproceedings{zio,
+  author    = {Timothy Stamler and Deukyeon Hwang and Amanda Raybuck and Wei Zhang and Simon Peter},
+  title     = {{zIO}: Accelerating {IO}-Intensive Applications with Transparent Zero-Copy {IO}},
+  booktitle = {Proceedings of the 16th USENIX Symposium on Operating Systems Design and Implementation (OSDI)},
+  year      = {2022}
+}
+
+@inproceedings{copier,
+  author    = {Jingkai He and Yunpeng Dong and Dong Du and Mo Zou and Zhitai Yu and Yuxin Ren and Ning Jia and Yubin Xia and Haibo Chen},
+  title     = {How to Copy Memory? Coordinated Asynchronous Copy as a First-Class {OS} Service},
+  booktitle = {Proceedings of the 31st ACM Symposium on Operating Systems Principles (SOSP)},
+  year      = {2025},
+  doi       = {10.1145/3731569.3764800}
+}
+
+@inproceedings{cachelib,
+  author    = {Benjamin Berg and Daniel S. Berger and Sara McAllister and Isaac Grosof and Sathya Gunasekar and Jimmy Lu and Michael Uhlar and Jim Carrig and Nathan Beckmann and Mor Harchol-Balter and Gregory R. Ganger},
+  title     = {The {CacheLib} Caching Engine: Design and Experiences at Scale},
+  booktitle = {Proceedings of the 14th USENIX Symposium on Operating Systems Design and Implementation (OSDI)},
+  year      = {2020}
+}
+
+@inproceedings{twitter20,
+  author    = {Juncheng Yang and Yao Yue and K. V. Rashmi},
+  title     = {A Large Scale Analysis of Hundreds of In-Memory Cache Clusters at {Twitter}},
+  booktitle = {Proceedings of the 14th USENIX Symposium on Operating Systems Design and Implementation (OSDI)},
+  year      = {2020}
+}
+
+@inproceedings{cliquemap,
+  author    = {Arjun Singhvi and Aditya Akella and Maggie Anderson and Rob Cauble and Harshad Deshmukh and Dan Gibson and Milo M. K. Martin and Amanda Strominger and Thomas F. Wenisch and Amin Vahdat},
+  title     = {{CliqueMap}: Productionizing an {RMA}-Based Distributed Caching System},
+  booktitle = {Proceedings of the ACM SIGCOMM Conference},
+  year      = {2021}
+}
+
+@inproceedings{meshinsight,
+  author    = {Xiangfeng Zhu and Guozhen She and Bowen Xue and Yu Zhang and Yongsu Zhang and Xuan Kelvin Zou and Xiongchun Duan and Peng He and Arvind Krishnamurthy and Matthew Lentz and Danyang Zhuo and Ratul Mahajan},
+  title     = {Dissecting Overheads of Service Mesh Sidecars},
+  booktitle = {Proceedings of the ACM Symposium on Cloud Computing (SoCC)},
+  year      = {2023}
+}
+
+@inproceedings{cachegen,
+  author    = {Yuhan Liu and others},
+  title     = {{CacheGen}: {KV} Cache Compression and Streaming for Fast Large Language Model Serving},
+  booktitle = {Proceedings of the ACM SIGCOMM Conference},
+  year      = {2024},
+  note      = {TODO(verify): author list}
+}
+
+@inproceedings{mooncake,
+  author    = {Ruoyu Qin and others},
+  title     = {Mooncake: Trading More Storage for Less Computation --- A {KVCache}-centric Architecture for Serving {LLM} Chatbot},
+  booktitle = {Proceedings of the 23rd USENIX Conference on File and Storage Technologies (FAST)},
+  year      = {2025},
+  note      = {TODO(verify): author list}
+}
+
+@misc{lmcache,
+  author    = {{LMCache authors}},
+  title     = {{LMCache}},
+  howpublished = {arXiv preprint 2510.09665},
+  year      = {2025},
+  note      = {TODO(verify): authors and title}
+}
+
+@inproceedings{directkv,
+  author    = {Luo and Shen},
+  title     = {No Buffer, No Bottleneck: {DirectKV}},
+  booktitle = {Proceedings of the 20th USENIX Symposium on Operating Systems Design and Implementation (OSDI)},
+  year      = {2026},
+  note      = {TODO(verify): authors and title as printed}
+}
+
+@misc{dsv41,
+  author    = {{DeepSeek-AI}},
+  title     = {{DeepSeek-V4.1-Flash} Technical Report},
+  howpublished = {arXiv preprint 2609.19969},
+  year      = {2026}
+}
+
+@misc{redisclients,
+  author    = {{Redis}},
+  title     = {Client-side buffer limits},
+  howpublished = {Redis documentation, \url{https://redis.io/docs/latest/develop/reference/clients/}},
+  year      = {2026}
+}
+
+@inproceedings{socksdirect,
+  author    = {Bojie Li and Tianyi Cui and Zibo Wang and Wei Bai and Lintao Zhang},
+  title     = {{SocksDirect}: Datacenter Sockets Can Be Fast and Compatible},
+  booktitle = {Proceedings of the ACM SIGCOMM Conference},
+  year      = {2019}
+}
+
+@inproceedings{tcpsplice,
+  author    = {David A. Maltz and Pravin Bhagwat},
+  title     = {{TCP} Splicing for Application Layer Proxy Performance},
+  booktitle = {IBM Research Report RC 21139},
+  year      = {1998},
+  note      = {TODO(verify): venue}
+}
+
+@inproceedings{rosu03,
+  author    = {Marcel-C{\u a}t{\u a}lin Ro{\c s}u and Daniela Ro{\c s}u},
+  title     = {Kernel Support for Faster Web Proxies},
+  booktitle = {Proceedings of the USENIX Annual Technical Conference},
+  year      = {2003}
+}
+
+@misc{sosplice,
+  author    = {{OpenBSD}},
+  title     = {{SO\_SPLICE}: socket splicing},
+  howpublished = {OpenBSD \texttt{setsockopt(2)} manual page},
+  year      = {2011},
+  note      = {TODO(verify)}
+}
+
+@misc{xlb,
+  author    = {Yuejie Wang and Chenchen Shou and Jiaxu Qian and Guyue Liu},
+  title     = {{XLB}: A High Performance Layer-7 Load Balancer for Microservices using {eBPF}-based In-kernel Interposition},
+  howpublished = {arXiv preprint, \url{https://arxiv.org/abs/2602.09473v1}},
+  year      = {2026}
+}
+
+@misc{beeline,
+  author    = {Laurin Brandner and Ayush Mishra and Sebastiano Miano and Aurojit Panda and Gianni Antichi and Laurent Vanbever},
+  title     = {Enforcing Application-Layer Policies in {eBPF}},
+  howpublished = {arXiv preprint, \url{https://arxiv.org/abs/2605.31084v4}},
+  year      = {2026}
+}
+
+@inproceedings{bpfbroker,
+  author    = {Beihao Zhou and Samer Al-Kiswany and Mina Tahmasbi Arashloo},
+  title     = {Toward {eBPF}-Accelerated Pub-Sub Systems},
+  booktitle = {Proceedings of the 3rd Workshop on eBPF and Kernel Extensions},
+  year      = {2025},
+  pages     = {38--44},
+  doi       = {10.1145/3748355.3748365}
+}
+
+@inproceedings{bmc,
+  author    = {Yoann Ghigoff and Julien Sopena and Kahina Lazri and Antoine Blin and Gilles Muller},
+  title     = {{BMC}: Accelerating Memcached using Safe In-kernel Caching and Pre-stack Processing},
+  booktitle = {Proceedings of the 18th USENIX Symposium on Networked Systems Design and Implementation (NSDI)},
+  year      = {2021}
+}
+
+@misc{tux,
+  author    = {Chuck Lever and Marius Aamodt Eriksen and Stephen P. Molloy},
+  title     = {An Analysis of the {TUX} Web Server},
+  howpublished = {CITI Technical Report 00-8, University of Michigan},
+  year      = {2000}
+}
+
+@misc{valkey9reply,
+  author    = {{Valkey}},
+  title     = {Reply Copy Avoidance},
+  howpublished = {Valkey pull request \#2078, \url{https://github.com/valkey-io/valkey/pull/2078}},
+  year      = {2025}
+}
+
+@inproceedings{prism,
+  author    = {Yutaro Hayakawa and Michio Honda and Douglas Santry and Lars Eggert},
+  title     = {Prism: Proxies without the Pain},
+  booktitle = {Proceedings of the 18th USENIX Symposium on Networked Systems Design and Implementation (NSDI)},
+  year      = {2021}
+}
+
+@inproceedings{ix,
+  author    = {Adam Belay and George Prekas and Ana Klimovic and Samuel Grossman and Christos Kozyrakis and Edouard Bugnion},
+  title     = {{IX}: A Protected Dataplane Operating System for High Throughput and Low Latency},
+  booktitle = {Proceedings of the 11th USENIX Symposium on Operating Systems Design and Implementation (OSDI)},
+  year      = {2014}
+}
+
+@inproceedings{demikernel,
+  author    = {Irene Zhang and Amanda Raybuck and Pratyush Patel and Kirk Olynyk and Jacob Nelson and Omar S. Navarro Leija and Ashlie Martinez and Jing Liu and Anna Kornfeld Simpson and Sujay Jayakar and Pedro Henrique Penna and Max Demoulin and Piali Choudhury and Anirudh Badam},
+  title     = {The Demikernel Datapath {OS} Architecture for Microsecond-scale Datacenter Systems},
+  booktitle = {Proceedings of the 28th ACM Symposium on Operating Systems Principles (SOSP)},
+  year      = {2021}
+}
+
+@inproceedings{l5o,
+  author    = {Boris Pismenny and Haggai Eran and Aviad Yehezkel and Liran Liss and Adam Morrison and Dan Tsafrir},
+  title     = {Autonomous {NIC} Offloads},
+  booktitle = {Proceedings of the 26th ACM International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS)},
+  year      = {2021}
+}
+
+@inproceedings{nicmem,
+  author    = {Boris Pismenny and Liran Liss and Adam Morrison and Dan Tsafrir},
+  title     = {The Benefits of General-Purpose On-{NIC} Memory},
+  booktitle = {Proceedings of the 27th ACM International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS)},
+  year      = {2022}
+}
+
+@inproceedings{magazines,
+  author    = {Jeff Bonwick and Jonathan Adams},
+  title     = {Magazines and Vmem: Extending the Slab Allocator to Many {CPUs} and Arbitrary Resources},
+  booktitle = {Proceedings of the 2001 USENIX Annual Technical Conference (USENIX ATC)},
+  address   = {Boston, MA},
+  month     = jun,
+  year      = {2001}
+}

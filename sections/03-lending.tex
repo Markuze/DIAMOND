@@ -1,0 +1,97 @@
+% Two lending modes, followed by their common object representation and lifetimes.
+% The CPU/context-local design is distinct from historical and fixed-pool measurement kernels.
+\section{Lending Kernel Memory}
+\label{sec:lending}
+
+\sys objects are application-owned data in kernel-managed storage, independent of their
+source connection. Applications choose their ranges, retention and destinations; the kernel
+manages outstanding references. Named and mapped modes offer different access to these bytes.
+Figure~\ref{fig:modes} shows their memory boundaries; \S\ref{sec:named}--\ref{sec:mapped}
+describe their interfaces.
+
+This section and \S\ref{sec:named}--\ref{sec:mapped} describe the current design. Prototypes
+and later fixed-pool kernels provide parts of it; the CPU-local recycling described below
+has no qualified performance results. Section~\ref{sec:impl} distinguishes these versions;
+\S\ref{sec:eval} identifies the measurements still needed.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  every node/.style={font=\scriptsize,align=center},
+  accessbox/.style={draw,text width=0.40\columnwidth,minimum height=0.40in,inner sep=3pt}]
+\node[accessbox] (namedapp) at (-0.25\columnwidth,0)
+  {Named mode: read-only by handle\\unprivileged application};
+\node[accessbox] (mappedapp) at (0.25\columnwidth,0)
+  {Mapped mode: read/write mapping\\device-trusted application};
+\node[accessbox] (namedkernel) at (-0.25\columnwidth,-0.9in)
+  {Receive pages\\no mapping by the named API};
+\node[accessbox] (mappedkernel) at (0.25\columnwidth,-0.9in)
+  {Segregated I/O area\\mapped read/write};
+\node[draw,text width=0.90\columnwidth,minimum height=0.36in,inner sep=3pt]
+  (private) at (0,-1.65in)
+  {Private kernel memory\\control structures and header copies};
+\draw[dashed] (-0.49\columnwidth,-0.44in) -- (0.49\columnwidth,-0.44in);
+\draw[<->] (namedapp.south) -- (namedkernel.north)
+  node[midway,fill=white] {checked\\operations};
+\draw[<->] (mappedapp.south) -- (mappedkernel.north)
+  node[midway,fill=white] {direct\\read/write};
+\draw[->] (mappedkernel.south) -- (private.north)
+  node[midway,fill=white] {copy headers\\for parsing};
+\end{tikzpicture}
+\caption{Two lending modes across the application/kernel boundary (dashed). The named API
+maps no receive pages. Mapped access exposes a dedicated I/O area while kernel
+control state and parsing copies remain private. Both can use retained objects.}
+\label{fig:modes}
+\end{figure}
+
+\subsection{Common objects and three lifetimes}
+\label{sec:lending:objects}
+\label{sec:named:objects}
+
+A \emph{store} groups objects and streams under one retention limit.
+An object has a fixed-size \emph{head}, recording its length and state, and a chain of
+fixed-size \emph{segments}. Each segment describes a page range and its next segment.
+Registration allocates arrays of heads and segments; creating and releasing objects takes
+and returns entries without allocating per-object metadata. This guarantee covers object
+metadata; copied-payload buffers and send-request storage need separate provisioning
+(\S\ref{sec:impl}).
+
+A send is \emph{admitted} when it has resolved its handles and acquired object references.
+The shared design separates three lifetimes:
+\begin{enumerate}
+\setlength{\itemsep}{2pt}
+\item \textbf{Handle.} The name remains valid until the kernel processes \code{FREE}, or
+  admits a send marked as its last use. Removal prevents later lookups.
+\item \textbf{Metadata.} Admitted sends keep the head and segments while queueing bytes.
+  After the handle is gone and those sends finish or fail, ordinary object metadata can
+  be recycled. Mapped objects add a reclamation stage before recycling (\S\ref{sec:mapped}).
+\item \textbf{Pages.} TCP packets hold their own references until acknowledgement or
+  connection cleanup. Pages may therefore remain in flight after a handle disappears,
+  and ordinary object metadata can be recycled before the pages are released.
+\end{enumerate}
+
+For example, \code{FREE} can remove a handle while an admitted send keeps its metadata;
+TCP then keeps any pages it still needs. Preparing or submitting a request alone does not
+protect its handle against concurrent release. Keeping handles through send completions is
+a simple application discipline. Each admitted send has its own position in the segment
+chain, so destinations can progress independently.
+
+\paragraph{CPU-local recycling.} A magazine allocator~\cite{magazines} keeps free entries in
+small batches. Each possible CPU has separate pairs of batches for tasks and soft interrupts.
+A task briefly disables preemption while using its pair; an interrupting softirq uses the
+other pair. A local take or return therefore needs no lock and masks neither interrupts nor
+bottom halves. Batch exchange and near-exhaustion access still lock the shared pool.
+Hard interrupts and NMIs cannot allocate entries; their returns are deferred. Rings sharing a store
+use the current CPU's caches, rather than owning caches themselves.
+
+Handle lookup and send ordering still require synchronization. Named operations provide no
+in-place write; mapped applications must coordinate edits with every outstanding use.
+
+\subsection{Costs and capacity}
+\label{sec:lending:cost}
+
+Store capacity bounds retained references; exhaustion stops capture and fails requests
+needing entries with \code{-ENOMEM}, leaving unread bytes in TCP (\S\ref{sec:named:memory}).
+Mapped-area capacity is separate: held or in-flight pages cannot receive new data. Raw relays
+return buffers after reuse notifications; objects leave reclamation to the kernel
+(\S\ref{sec:mapped}).

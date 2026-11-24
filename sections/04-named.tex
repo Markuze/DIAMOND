@@ -1,0 +1,162 @@
+% Named-mode design, aligned with docs/design_spec.md §2.
+% Named read-only access; the common object representation and lifetimes are in Section 3.
+% Historical results and provisional fixed-pool data do not evaluate the CPU-local design.
+\section{Named Mode: Objects Without a Mapping}
+\label{sec:named}
+
+Named mode provides read-only handle operations without mappings. It uses the shared objects
+and lifetimes of \S\ref{sec:lending:objects}.
+
+\subsection{Interface}
+\label{sec:named:interface}
+
+An application registers a \emph{store} on an \iouring ring, specifying its retention limit,
+largest object size, and maximum numbers of objects and streams. It attaches connected TCP
+sockets to the store. Each attachment returns a \emph{stream token} and gives the store
+exclusive receive access to that socket. Operations identify stream bytes by absolute offset,
+starting at the first unread byte when attachment occurs.
+
+A parser first inspects a header, then discards the header bytes and names the body range.
+\code{RECV\_OBJECT} can be posted before the body arrives, but returns a handle only when the
+whole range is present. The main operations are:
+
+\begin{center}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}
+  >{\raggedright\arraybackslash}p{0.32\columnwidth}
+  >{\raggedright\arraybackslash}p{0.64\columnwidth}@{}}
+\toprule
+Operation & Effect \\
+\midrule
+\code{INSPECT} & Copy a bounded window of stream bytes without consuming it. \\
+\code{AVAILABLE} & Count contiguous available bytes without copying or consuming them. \\
+\code{RECV\_OBJECT} & Take an exact stream range as a complete object. \\
+\code{DISCARD} & Consume an unwanted stream range. \\
+\code{SEND} & Send object ranges, optionally with generated framing. \\
+\code{FREE} & Remove an object handle. \\
+\code{READ\_OBJECT} & Copy an exact, bounded range of a completed object. \\
+\code{CREATE} & Copy application bytes into a new object. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\code{INSPECT} may return only part of a header. The parser accumulates it by requesting the
+first missing byte. A failed \code{RECV\_OBJECT} publishes no partial object and returns its
+captured prefix to the stream while the stream remains open. Discard is different: a failed
+or canceled \code{DISCARD} may already have consumed bytes, which cannot be restored.
+
+The store, rather than the source socket, holds completed objects, so they survive stream
+closure. \code{STREAM\_CLOSE} releases the stream token, undecided input and receive claim;
+closing the application's socket descriptor alone does not close that stream. A store can
+be exported through a file descriptor and imported by other rings. They share its handles,
+capacity and per-socket send ordering.
+
+\subsection{Capturing received bytes}
+\label{sec:named:capture}
+
+The \emph{collector} removes bytes from TCP's receive queue only as it retains or discards
+them. Stable, readable page fragments are retained by reference. When it consumes an unshared
+packet completely, the collector can transfer the packet's page references rather than
+incrementing their counts. Where this transfer is not possible, it takes its own references.
+
+Data that cannot safely be retained is copied into kernel-owned buffers. This includes
+payload in non-page allocations and shared or cloned buffers whose contents another owner
+could change, as can occur over loopback and veth. Unreadable fragments, such as device-memory
+payload, are refused. Capture counts fallback copies; retaining ordinary TCP data does not
+guarantee that every byte is taken by reference.
+
+Bytes not yet assigned to an object or discarded are \emph{undecided}. They occupy store
+entries while the application parses. Collection follows demand: it can take a batch when no
+undecided bytes remain, continue for a waiting inspection, or advance toward a pending range
+decision. It stops unnecessary lookahead once undecided input awaits a decision. Unconsumed
+bytes stay in TCP, so a slow parser eventually closes the receive window. Exhausting store
+entries also stops capture (\S\ref{sec:named:memory}).
+
+\subsection{Sending object ranges}
+\label{sec:named:send}
+
+A send walks the object's segments and passes page references to TCP through the path used
+by \splice and \sendfile. If the socket fills, the request keeps its position and resumes at
+the first unqueued byte. One request can include a generated prefix and suffix, which are
+copied, or gather ranges from several objects in a vectored send. A queue for each store and
+destination socket keeps these frames in order across retries, including sends from rings
+sharing the store. Other writers do not participate in that queue.
+
+A send completion reports bytes queued to TCP, including framing. It does not report remote
+delivery or page reclamation, and there is no later buffer-reuse notification for the object
+body. A send marked as the object's last use removes the handle at admission. Its completion
+reports whether the handle was consumed independently of whether the send succeeded. An
+error or short send after that transfer does not restore the name. A frame that terminates
+short also cancels its current followers; the application must recover the connection rather than
+assuming that frame boundaries remain intact.
+
+Two choices reduce the work per send. Vectored sends share request and socket-lock overhead
+across ranges. A separate optimization to the stack's splice helper reduces unnecessary
+splitting of eligible large-page ranges; it also benefits other users of that helper
+(\S\ref{sec:impl}). Received objects can still contain many small fragments. The transmit
+fragment limit may then require extra packets compared with a dense copying sender. Larger
+packets, a higher fragment limit, or a dense copy trade different costs against that limit.
+\todom{compare the received-fragment send configurations and their packet counts (Q6)}
+
+\subsection{Memory limits and a full store}
+\label{sec:named:memory}
+
+Each segment holds at most one receive-buffer reference, so $N$ segments retain at most $N$
+buffers across undecided input, pending objects and completed objects. A buffer split
+between objects consumes separate segments, so capacity can be exhausted before that many
+distinct buffers are held. The head array independently limits the number of pending and
+completed objects.
+
+The base segment count is the configured byte limit (\code{hard\_limit}) divided by the
+system page size. Each pool adds enough entries to cover all CPU-local stock: four batch
+capacities per possible CPU. This prevents stock in other caches from causing allocation
+failure before the configured count is in use. Live usage can exceed the base count by at
+most that extra stock; the physical arrays, not \code{hard\_limit} alone, bound retention.
+
+A short slice retains its whole backing buffer, so the limit is not useful payload capacity.
+Larger driver buffers also increase the physical footprint per segment. We call retained
+space outside useful payload \emph{slack}.
+
+Registration reserves the configured retention limit and charges it and the provisioned
+arrays to the registering task's memory control group once. This retention reservation is
+not an allocation of payload pages. Owned-copy buffers require a separate pool, including
+its extra CPU-local stock, charged and reserved at setup (\S\ref{sec:impl}). Taking an
+entry adds no per-operation charge. Importing a store adds neither capacity nor a new owner.
+These limits exclude rings and socket memory; TCP can retain pages after the store releases
+them.
+
+\paragraph{When capacity runs out.} Requests do not wait for a free head or segment. A request
+that can obtain one from neither its local pair nor the shared pool fails at once with \code{-ENOMEM}.
+Free entries in other pairs are not reclaimed before teardown. The collector stops, keeps bytes already
+captured and reports a nonterminal \code{-ENOMEM} event; bytes it has not taken stay in TCP.
+A \code{RECV\_OBJECT} that cannot finish returns its captured prefix to undecided input and
+publishes no handle.
+
+The application must free objects or discard unwanted input, then retry. Its next stream
+request runs another collection pass. \code{FREE} does not wake a queue of memory waiters,
+and a pending discard can advance without capturing more payload. An application that only
+waits for an object's completion while ignoring the collector's memory event can stall
+itself. Eviction and the number of outstanding requests remain application policies.
+
+\paragraph{Slack remains a tradeoff.} The arrays do not grow, and this design does not yet
+compact held data. Smaller receive buffers and better packet coalescing can reduce slack.
+Compaction would copy retained payload into denser buffers at an explicit copy cost. Earlier
+builds support it; its cost needs a separate comparison (\S\ref{sec:eval:fwd}).
+
+\subsection{Safety and shared authority}
+\label{sec:named:safety}
+
+The kernel checks a handle's store, generation and byte bounds. Generation checks prevent a
+stale handle from naming a new object in a recycled entry.
+Exclusive receive access prevents competing readers, sockmap programs or kernel TLS from
+changing the stream's byte offsets. Authorization to read the socket is checked at
+attachment.
+
+The named mode needs no administrative privilege, but remains subject to registration and
+socket permissions. Exporting a store deliberately shares authority: an importing ring can
+read, send or free its objects within the same capacity. It does not receive an isolated
+namespace. Closing streams, canceling requests and tearing down stores release their
+references without invalidating references still held by admitted sends or TCP. Finally,
+immutability does not protect against a trusted process that maps the device's receive
+memory (\S\ref{sec:mapped}).

@@ -1,0 +1,195 @@
+% Workloads and acceptance criteria; quantitative slots await Alex's qualified campaign updates.
+% Historical CLAIMS rows and provisional fixed-pool measurements are not final-design results.
+\section{Evaluation}
+\label{sec:eval}
+\input{figures/style}
+
+Earlier prototypes have receive, prepared-data send, forwarding, request/response and
+store-capacity measurements. Later fixed-pool send/receive tables are provisional and
+unqualified; they do not measure the CPU/context-local allocator.
+We describe the workloads and comparison rules below. Figures and quantitative result
+statements remain explicit placeholders until qualified campaign data are available.
+Historical observations identify tradeoffs, not the benefit of the current redesign.
+
+\subsection{Setup and comparison rules}
+\label{sec:eval:method}
+
+\paragraph{Testbed and metrics.} The earlier testbed uses cloud virtual machines with
+virtio-net. Forwarding has a source, the machine under test and a sink, with separate
+interfaces for the relay's two legs. Each new campaign must identify its kernel, application,
+machine shape, link allocation and NUMA placement. One- and four-worker configurations
+count interrupt, helper and reclamation work as well as application work; worker count is
+not total CPU allocation.
+
+CPU cost is host CPU-seconds per delivered gigabyte or per transaction. The revised
+accounting uses precise snapshots and corrects known idle/interrupt overlap: per CPU,
+wall time minus idle and I/O-wait time is floored at interrupt, soft-interrupt and steal
+time when the excess exceeds the counter tolerance. A passing accounting check does not
+prove exact accounting. Report the rule, qualification and any idle-baseline subtraction;
+do not mix corrected results with older estimators.
+% CLAIMS M2; precise-floor-v1, not the superseded uncorrected total-minus-idle claim.
+
+\paragraph{Comparable work.} Matched comparisons hold bytes per operation, ranges per
+request, outstanding requests and event-loop policy fixed. A separate comparison can use
+each native interface as intended, but must identify differences such as blocking calls
+versus batched asynchronous requests. Retaining an object is more work than discarding it;
+raw mapped buffers and bound objects also have different lifetime responsibilities.
+
+\paragraph{Rates and uncertainty.} Main comparisons run at full speed. Report delivered
+goodput with CPU cost, rather than interpreting lower CPU per byte as higher maximum
+throughput. Earlier campaigns fell into distinct throughput groups for reasons not yet
+isolated. Interleave mechanisms, classify operating groups by the declared campaign rules,
+and report each separately. A pooled mean cannot establish a matched-rate advantage.
+Record repetitions, exclusions and uncertainty; absence of a significant difference does
+not establish equivalence.
+
+\paragraph{Controls.} Preserve packet-tap settings and bounded \sendzc notification chains.
+Verify bytes in separate runs through the same path, and state which timed paths inspect
+or edit payload. Registration, initial data construction and warm-up must be consistently
+inside or outside timing. Missing verification, accounting or build qualification leaves a
+cell unqualified, even if it has a throughput number.
+
+\subsection{Receive through both modes}
+\label{sec:eval:rx}
+\label{sec:eval:ubiquitous}
+
+On the tested virtio-net interfaces, hardware zero-copy receive rejects registration with
+\code{EOPNOTSUPP}. Named capture works without driver changes; mapped receive works with
+the integration of \S\ref{sec:mapped}. This is availability evidence for that setup, not
+performance parity with hardware-assisted receive on a supported NIC.
+% CLAIMS F5, F6: functional facts, distinct from pending performance rows.
+
+Compare copying \code{recv()}, a copying \iouring receiver, named capture and release,
+capture into a bound store, and raw mapped receipt and slot return. Named discard is a
+lower-work reference. Keep the source's bulk writes fixed while varying the receiver's
+operation or object limit; report actual bytes per operation, since TCP need not preserve
+source write boundaries.
+
+\input{figures/rx}
+
+Historical capture results used unmatched operation and batching settings, and the receive
+runs have not been requalified under current gates. They motivate a matched rerun, not a
+headline speedup. The new comparison must distinguish metadata cost from copies and from
+the work of reading payload.
+\todom{insert qualified receive costs, rates, uncertainty and copy counts for both modes;
+retain historical/unmatched labels until the matched campaign supersedes CLAIMS F24}
+
+\subsection{Sending prepared and captured objects}
+\label{sec:eval:tx}
+
+For prepared-data tests, construct objects and register send buffers before timing.
+Compare named and mapped-bound object sends with copying sends and \sendzc using per-send
+pinning or registered buffers. Show single-range and batched requests separately, with
+matching request depths. Initial fill cost is a separate measurement; a prepared object is
+not evidence for the cost of capturing and sending fragmented network data.
+
+\input{figures/tx}
+
+Per-send versus registered \sendzc isolates the value of amortized pinning better than an
+object-versus-buffer comparison alone. Registered buffers still have reuse notifications,
+but an immutable sender need not wait to overwrite them. The absence of such a wait in
+object sends is a design property, not a measured timing benefit.
+
+Keep \msgzc and \sendfile comparisons within their own campaigns and object baselines.
+For \sendfile, state file-page layout and tested sizes; any shared splice-helper
+optimization must be present on both eligible paths. Add sends of captured objects and
+report fragment counts, copies and packet counts.
+\todom{replace send placeholders from qualified matched and native-interface comparisons;
+do not reuse superseded percentages or infer equality from overlapping error bars}
+
+\subsection{Forwarding through both modes}
+\label{sec:eval:fwd}
+
+A byte-stream relay forwards in both directions, preserving bytes and backpressure.
+Compare named, mapped-bound and raw mapped relays with copying, copying \iouring and
+\splice; retain sockmap only with its actual program and queue policy specified.
+Every path terminates the same two TCP connections. Use the same operation limits,
+placement and bounded outstanding data.
+
+\input{figures/fwd}
+
+Historical pooled results span throughput groups and do not isolate the cause of the
+difference between named and bound relays. The named relay forwards without requesting
+compaction; its difference from the bound relay must not be explained by a receive copy
+that it does not make. Measure compaction separately if a tested build offers it.
+A poorly backpressured sockmap configuration is not evidence against every sockmap relay.
+\todom{insert qualified forwarding CPU cost, goodput and uncertainty by size and worker count;
+compare named and mapped-bound directly on one build}
+
+\subsection{Request/response}
+\label{sec:eval:rr}
+
+The client sends a request, waits for its response, then repeats. Compare the same relays
+with a direct path without a relay. Vary transaction size separately from concurrent
+connections; report transactions per second, median and tail latency, and relay CPU per
+transaction within a common measurement window.
+
+Historical small-message tests showed higher object-relay CPU cost than copying or
+\splice, but their qualification remains historical. They neither establish latency under
+load nor predict the current design's per-operation cost.
+\todom{insert qualified request/response results for both modes by size and worker count;
+preserve small-message regressions if the rerun confirms them}
+
+\subsection{Store capacity and performance}
+\label{sec:eval:store}
+\label{sec:eval:retention}
+
+Use the same store's named, mapped-bound and copying backends to hold parser and policy
+constant. Memcached and Redis provide additional application comparisons, with protocol
+and feature differences stated. Measure operations per second, CPU per operation, latency
+and useful payload held under a common physical-memory budget.
+
+The earlier capacity pilot held less payload with named storage under equal configured
+limits. It did not equalize total physical memory or measure a performance/capacity tradeoff.
+Report backing slack, metadata, CPU-local free stock, mapped-area reservations and pages
+still held by sends separately; shared pages count once.
+\todom{insert repeated capacity and qualified store-performance results; the earlier capacity
+pilot is not a throughput, multicore or mapped-store result}
+
+\subsection{Remaining experiments and qualification}
+\label{sec:eval:planned}
+
+Run the five workloads by size with one and several application workers, including both
+modes. Compare allocator versions on one controlled build pair with API batching unchanged.
+A link-limited bulk test can compare CPU efficiency, but cannot establish scaling in maximum
+throughput. Use request/response and the store where processing, rather than the link,
+limits progress.
+
+For CPU-local recycling, test task/softirq interleaving, migration, cross-CPU returns,
+offline-CPU stock, deferred interrupt returns, teardown and exhaustion. Measure local hits,
+shared-pool exchanges and the provisioned memory as possible CPU count changes. These
+checks must precede any claim about reduced interrupt masking or allocator cost.
+
+For mapped access, verify direct reads and same-length edits before sending. Stress private
+header processing under mapper writes, outside page references, area exhaustion, instance
+import and teardown. The tests distinguish protection of kernel control state from
+device-wide authority over payload. Retention, fan-out and slow readers need measurements
+of both progress and memory reclamation.
+
+\paragraph{Hardware independence.} Only earlier-prototype virtio-net availability is recorded.
+Other drivers and a supported hardware receive path remain to be evaluated:
+\begin{center}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}
+  >{\raggedright\arraybackslash}p{0.30\columnwidth}
+  >{\raggedright\arraybackslash}p{0.23\columnwidth}
+  >{\raggedright\arraybackslash}p{0.18\columnwidth}
+  >{\raggedright\arraybackslash}p{0.20\columnwidth}@{}}
+\toprule
+Environment & Hardware \recvzc & Named & Mapped \\
+\midrule
+Earlier virtio-net test & Rejected & Works & Works\textsuperscript{*} \\
+Eligible hardware NIC & Untested & Untested & Untested\textsuperscript{*} \\
+Other drivers & Not surveyed & Untested & Untested\textsuperscript{*} \\
+\bottomrule
+\end{tabular}
+
+\raggedright \textsuperscript{*}Requires provider/driver integration and device-wide trust.
+\end{center}
+On a supported NIC, compare hardware receive and its \recvzc-to-\sendzc relay with
+both object modes, matching receive work, sizes and placement. The cloud results cannot
+predict this comparison.
+
+\todom{Alex: populate result slots and figures from each qualified campaign and update CLAIMS
+together; provisional fixed-pool tables are not final-design results}

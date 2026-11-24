@@ -1,0 +1,60 @@
+% Closing scope and evidence boundaries. Prototype results do not validate the revised design.
+\section{Discussion and Limitations}
+\label{sec:discussion}
+
+\paragraph{Workload fit.} Named mode suits bodies that need little inspection; mapped
+mode permits direct reads and edits. Per-operation work makes copying competitive for
+small messages, and batching changes the comparison (\S\ref{sec:eval:tx}). Objects use more
+CPU in historical small request/response tests; the current design needs a qualified
+comparison (\S\ref{sec:eval:rr}).
+
+\paragraph{Writable access and trust.} Segregation protects kernel control state and private
+parsing copies, not payload immutability or tenant isolation. A mapper can read and change
+other flows' bytes in the area, including data retained by named objects. It must be trusted
+with the device and coordinate edits with outstanding uses; an object send's completion
+does not authorize rewriting bytes TCP still holds.
+
+\paragraph{Retention costs.} A short range keeps its backing buffer in memory; fragmentation
+can also require extra transmit packets (\S\ref{sec:named:send}). Store and area limits
+cover different resources, not all host memory (\S\ref{sec:named:memory}). CPU-local stock
+adds setup memory that scales with possible CPU count, including offline CPUs. Earlier prototypes
+support compaction, but a remedy for wasted space remains deferred in the revised design.
+
+\paragraph{Deployment and processing.} Hardware agnosticism removes a requirement for NIC
+header split or per-application receive queues; it does not remove software integration.
+Named capture requires no driver change, but some
+buffers need a fallback copy and unreadable device-memory payload is refused. Mapped access
+requires the receive-provider and driver support of \S\ref{sec:mapped}. Current object
+capture excludes kernel TLS sockets; capture after decryption and kernel-side transforms
+remain extensions. Cryptographic processing remains unmeasured.
+
+\paragraph{Storage-backed objects.} A proposed extension would read aligned storage ranges
+into kernel-owned objects. A flash-backed server could retain a value and serve later TCP
+responses through the same handle. Existing \sendfile, splice and registered-buffer paths
+already compose storage and network I/O~\cite{sendfileapi,spliceapi,ublkzc}; the question is
+whether explicit retained objects simplify reuse at competitive CPU and memory cost.
+No block-I/O extension is implemented or measured. Device and file-system constraints,
+partial blocks and request lifetimes need a precise contract. Writes must preserve live
+object contents, and device completion is distinct from durability. Received fragments may
+need a copy before storage.
+
+\paragraph{Remaining work.} Fixed-pool code exists, but does not establish the current
+CPU/context-local design (\S\ref{sec:impl}). Pool provisioning, exhaustion recovery and safe
+recycling with outside holders need build-specific qualification, followed by
+\S\ref{sec:eval:planned}'s experiments. QUIC remains a separate proposal; the current
+capture interface handles TCP data.
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+\emph{Lend, don't borrow} gives applications two forms of access to kernel-owned payload
+without NIC header split or per-application receive queues. Named mode offers unprivileged
+applications read-only handle operations to retain and resend TCP ranges without mapping.
+Mapped mode offers read/write access to segregated I/O pages, with private kernel control
+state and parsing copies. It requires driver support, device-wide trust and coordinated
+edits. Both modes share objects and kernel-managed page lifetimes.
+
+Historical measurements expose bulk, per-operation and retained-capacity tradeoffs; they
+do not validate the current CPU-local recycling and reclamation. Qualified comparisons of
+both modes remain necessary.
+\label{body:end}% the last line of the body: `make pages' reads its page from main.aux

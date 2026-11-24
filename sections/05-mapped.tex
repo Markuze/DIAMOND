@@ -1,0 +1,148 @@
+% Mapped mode: writable I/O pages, private kernel control state and shared objects.
+% Driver/provider and object interfaces exist in prototypes; revised reclamation is planned.
+\section{Mapped Mode: Segregated I/O Memory}
+\label{sec:mapped}
+
+The mapped mode lets a device-trusted process inspect or edit payload in a dedicated
+network I/O area.
+
+\subsection{The memory boundary}
+\label{sec:mapped:segregation}
+
+The kernel allocates accounted, zeroed pages dedicated to network I/O. Socket state,
+buffer bookkeeping and object metadata remain outside the mapping.
+
+Packets may contain headers as well as payload in the area. The kernel acts on private
+header copies, so a mapper cannot change the fields it relies on during parsing. The
+virtio-net integration copies protocol headers into private packet storage; the stack pulls
+further headers there as needed. It also snapshots virtio control fields, including the
+buffer count. Original header bytes may remain mapped: segregation protects the copies
+used for processing, not the secrecy of those bytes.
+
+MAIO already dedicated memory to I/O and mapped it into applications~\cite{maio}.
+\sys replaces its hardware header split with private software copies and uses device-wide
+trust, as MAIO's privileged fallback did, rather than per-process receive rings. The added
+object interface retains and reuses payload.
+
+\subsection{Setup and driver requirements}
+
+A process with \capnetadmin registers an instance on a device. The kernel allocates the
+receive area, reserves its locked-memory allowance and returns an offset for a read-write
+mapping on the ring descriptor. The area supplies every receive queue of that device.
+One instance serves the device; trusted processes can share it.
+
+The driver's queue-management interface must allow installing this buffer source, and its
+receive pools must accept the pages and keep parsed headers private. A page pool alone is
+insufficient. This requires kernel/provider and driver integration, but neither hardware
+header/data split nor per-application receive rings or flow steering.
+
+\subsection{Read/write access and trust}
+
+The mapper can read and change other flows' payload, data retained by unbound named stores,
+and bytes still in flight. Kernel references keep storage alive; they do not prevent writes
+or provide a send-time content snapshot. Editing bytes does not change an object's length
+or segment layout.
+
+An application must coordinate edits with every outstanding use of those bytes. A simple
+discipline is to finish edits before the first send and make no further writes to the value.
+Object-send completion reports queueing, not permission to rewrite bytes TCP still uses.
+The stack marks sends of area pages as externally writable, including pages retained by
+unbound stores; this informs network consumers but does not stop application writes.
+
+Registration and instance import require \capnetadmin. Mapping does not repeat that check:
+passing a registered ring descriptor can delegate device-wide authority, without tenant,
+store or socket isolation. The kernel blocks unprivileged TCP page remapping of area pages
+to prevent exposure of later traffic after reuse.
+
+\subsection{Raw buffers and retained objects}
+
+The area supports two lifetime interfaces (Table~\ref{tab:mapped}).
+With \textbf{raw receive}, the application posts \recvzc requests and receives area offsets
+and lengths. Each receive reference must be returned through the refill ring. A raw relay
+using \sendzc waits for every associated buffer-reuse notification before returning it;
+send acceptance alone is insufficient. Permanently registering the whole area as fixed
+send buffers would keep extra references on all pages and prevent recycling, so this relay
+pins per send.
+
+\begin{table}[t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}
+  >{\raggedright\arraybackslash}p{0.20\columnwidth}
+  >{\raggedright\arraybackslash}p{0.35\columnwidth}
+  >{\raggedright\arraybackslash}p{0.39\columnwidth}@{}}
+\toprule
+ & Raw buffers & Mapped objects \\
+\midrule
+Receive result & Area offset and length from \recvzc
+  & Complete object handle; query area offsets \\
+Return receive references & Application posts refill entries
+  & Kernel releases them with the object \\
+Forwarding & \sendzc; wait for buffer-reuse notifications
+  & Object send; kernel tracks page lifetime \\
+What holding uses & Receive-area buffers
+  & Receive-area buffers and store metadata \\
+\bottomrule
+\end{tabular}
+\caption{Two lifetime interfaces over the same read-write I/O area. Both permit direct access;
+neither protects contents against the mapper.}
+\label{tab:mapped}
+\end{table}
+
+With \textbf{mapped objects}, a store binds to the instance and uses the capture and send
+operations of \S\ref{sec:named}, without a second \recvzc reader. The application queries a
+completed object's area offsets and accesses the value while retaining its handle. Offsets
+create no independent references: \code{FREE} or a consuming send ends access even though
+the area remains mapped. The kernel returns receive references without application refill
+entries or separate body-reuse notifications.
+
+Mapped does not guarantee copy-free arrival. A bound store retains eligible area buffers
+by reference but copies readable non-area or unsafe shared data into the area; unreadable
+input is refused. Its mapped flag guarantees an area location for each captured byte.
+\code{CREATE} instead copies application bytes into ordinary store-owned buffers and
+produces no mapped object. Mapped objects never move while live: their offsets must stay
+valid.
+
+\subsection{When storage becomes reusable}
+
+The area and its mappings keep persistent page references. TCP transmit packets, pipes
+and other holders can add ordinary page references. A page is \emph{quiet} when its actual
+reference count returns to the area's and mappings' baseline. The receive pool separately
+tracks received packets, raw consumers and object segments. Returning a page to the NIC
+requires both a quiet page and release of these pool references.
+
+An object that was never sent normally returns its buffers when freed. For a sent object,
+reclamation extends the lifetimes of \S\ref{sec:lending:objects}:
+\begin{enumerate}
+\setlength{\itemsep}{2pt}
+\item \textbf{Remove the name.} \code{FREE}, or admission of a consuming send, invalidates the
+  handle. Already admitted sends retain metadata while queueing their bytes.
+\item \textbf{Keep a reclamation record.} After all admitted sends finish queueing, the
+  head and segments move to a pool-managed waiting list, retaining buffer references.
+\item \textbf{Return buffers and metadata.} A background reclaimer checks the waiting
+  objects. Once every page of an object is quiet, it releases the object's pool references
+  and recycles the head and segments. Buffers return once their pool references are gone.
+\end{enumerate}
+
+Scans run after batches of releases or on a timer while work remains. They pass objects
+with outside holders, so one stalled connection does not block younger objects. Returned
+raw buffers and never-sent objects' pages can also wait for outside references; every return
+path checks before reuse. No object callback runs at acknowledgement. The receive-page pool
+exchanges free buffers in CPU-local batches with bottom halves disabled. It uses one pair
+per CPU, distinct from the store's separate task and softirq pairs
+(\S\ref{sec:lending:objects}).
+
+\subsection{Capacity and fallback}
+
+Store capacity and area capacity have separate locked-memory reservations. The area must
+cover posted receive buffers, cached free buffers, retained data, outstanding sends and
+pages awaiting reclamation. Free store metadata does not imply an available area buffer.
+A bound store keeps its area alive after the instance's last ring or exported-file user
+leaves, but the device provider is then removed; later capture may require copies.
+
+If area buffers run out, the driver may use ordinary receive pages; allocation can still
+fail. Those pages are not mapped slots. Exposing their bytes through raw receive or a bound
+store requires copying into an available area buffer. Raw receive can fail with an
+out-of-memory result, and bound capture needs both area space and store entries. Holding
+data therefore competes directly with new receives.

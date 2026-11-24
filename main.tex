@@ -1,14 +1,44 @@
-\documentclass{article}
-\usepackage{graphicx} % Required for inserting images
-
-\title{DIAMOND}
-\author{markuzea Markuze}
-\date{November 2026}
+% OSDI '27 submission: "Lend, Don't Borrow: Hardware-Agnostic Zero Copy with the Kernel Network Stack".
+%
+% Format (OSDI '27 CFP, read 2026-10-31): 12 single-spaced 8.5" x 11" pages for the body including
+% figures and tables, references extra; 10-point type on 12-point leading, two columns, Times or
+% similar, text block 7" x 9", pages numbered, PDF. Double-blind: anonymous authors and institutions,
+% an anonymized system name that differs from any used publicly (\sys in macros.tex).
+% Template: usenix2019_v3.sty from https://www.usenix.org/sites/default/files/usenix2019_v3.sty
+% (the file beside this one), used as the USENIX template usenix2019_v3.2.tex does.
+%
+% One file per section under sections/. Conventions: ../outline.md. Every number comes from
+% ../../CLAIMS.md (CLAUDE.md, "Claims"); \todom marks a number still to measure, \todod a decision,
+% \todov a fact to verify against its source. Build: make (latexmk).
+\documentclass[letterpaper,twocolumn,10pt]{article}
+\usepackage{usenix2019_v3}
+\input{macros}
 
 \begin{document}
 
+\date{}
+\title{\Large \bf Lend, Don't Borrow:\\ Hardware-Agnostic Zero Copy with the Kernel Network Stack}
+\author{{\rm Anonymous authors}\\ Paper \#\tododi{number}}
 \maketitle
 
-\section{Introduction}
+\begin{abstract}
+\input{sections/00-abstract}
+\end{abstract}
+
+\input{sections/01-introduction}
+\input{sections/02-borrowing}
+\input{sections/03-lending}
+\input{sections/04-named}
+\input{sections/05-mapped}
+\input{sections/06-implementation}
+\input{sections/07-applications}
+\input{sections/08-evaluation}
+\input{sections/09-related}
+\input{sections/10-discussion}
+
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\printdraftnotes
 
 \end{document}

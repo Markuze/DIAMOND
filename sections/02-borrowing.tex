@@ -1,0 +1,128 @@
+% Requirements and tradeoffs, rather than an overall ranking of zero-copy mechanisms.
+% Keep deployment requirements distinct from access, retention and buffer-lifetime obligations.
+\section{What Zero-Copy Interfaces Require}
+\label{sec:borrowing}
+
+Zero-copy interfaces grant different access and reuse, with requirements for protection,
+buffer lifetime and layout. Table~\ref{tab:space} separates these capabilities from their
+costs; protection alone does not explain every limitation.
+
+\begin{table*}[t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}
+  >{\raggedright\arraybackslash}p{0.18\textwidth}
+  >{\raggedright\arraybackslash}p{0.25\textwidth}
+  >{\raggedright\arraybackslash}p{0.25\textwidth}
+  >{\raggedright\arraybackslash}p{0.27\textwidth}@{}}
+\toprule
+Mechanism & Access and reuse & Setup requirements & Remaining costs or limits \\
+\midrule
+\multicolumn{4}{@{}l}{\emph{Existing Linux interfaces}} \\
+\msgzc, default \sendzc~\cite{msgzerocopy,sendzcdoc}
+  & Application buffers; repeated sends
+  & Socket or \iouring send API
+  & Pin per send; preserve bytes until reuse notification \\
+registered \sendzc~\cite{sendzcdoc}
+  & Registered buffers; repeated sends
+  & Register and pin a buffer pool
+  & Pinning is amortized; reuse notifications remain \\
+hardware \recvzc~\cite{zcrx,zcrxreg}
+  & Writable payload area; retained receive slots
+  & Header split, flow steering, queues; administrative registration
+  & Return slots; holding reduces the receive pool \\
+devmem TCP~\cite{devmem}
+  & Received ranges in device buffers
+  & Device-buffer binding, header split and flow steering
+  & Device-oriented access; release received ranges \\
+TCP page remapping~\cite{tcpmmap}
+  & Read-only mappings of received pages
+  & Eligible full, aligned payload pages
+  & Copy or skip ineligible bytes; manage mappings \\
+\splice, \code{tee}~\cite{spliceapi}
+  & Unmapped pipe data; \code{tee} duplicates references
+  & Linux pipe APIs
+  & Bounded FIFO pipes, not independently named ranges \\
+page cache + \sendfile~\cite{sendfileapi}
+  & File offsets; repeated range sends
+  & Linux file API
+  & Requires file-backed data; does not itself capture TCP input \\
+sockmap~\cite{sockmap}
+  & Socket streams redirected by BPF
+  & Load a BPF program and attach sockets
+  & Redirect interface; no retained-range handle \\
+\addlinespace
+\multicolumn{4}{@{}l}{\emph{Research designs}} \\
+IO-Lite~\cite{iolite}
+  & Read-only shared buffers; retained slices
+  & Modified OS buffering and drivers
+  & Choose access rights before receive placement \\
+PASTE~\cite{paste}
+  & Mapped buffers; retention and reuse; kernel TCP option
+  & netmap extension and driver support
+  & Isolated applications need DMA partitioning; buffer slack \\
+MAIO~\cite{maio}
+  & Segregated mapped I/O pages; kernel TCP
+  & Kernel memory and driver changes; hardware header split
+  & Per-process queues or privileged sharing \\
+\addlinespace
+\multicolumn{4}{@{}l}{\emph{\sys kernel extensions}} \\
+\textbf{Named mode}
+  & Read-only by handle; copied reads; concurrent range sends
+  & Kernel patches and application API changes
+  & Fallback copies, unused buffer space and object metadata \\
+\textbf{Mapped mode}
+  & Read-write I/O area; raw buffers or object handles
+  & Kernel/driver/application changes; administrative privilege
+  & Device-wide trust; coordinated writes; bounded receive pool \\
+\bottomrule
+\end{tabular}
+\caption{Representative interfaces that retain kernel TCP. Requirements describe the
+copy-avoiding path; fallbacks may copy. Buffers, pipes and files all support reuse. A reuse
+notification permits modification after all sends using the bytes release them, rather
+than merely reporting operation completion. Named mode maps nothing; mapped mode keeps
+kernel control state and parsing copies outside its read-write I/O area.}
+\label{tab:space}
+\end{table*}
+
+\subsection{Protection, access and retention}
+\label{sec:borrowing:services}
+\label{sec:borrowing:gap}
+
+Hardware \recvzc keeps parsed headers private and directs flows into separate receive
+pools~\cite{zcrx}. MAIO similarly uses header split, with per-process queues or privileged
+sharing~\cite{maio}. The latter accepts access to other flows rather than isolating them.
+
+IO-Lite chooses access rights in software before receive placement; PASTE retains mapped
+data and needs a dedicated port or DMA partitioning for isolated applications~\cite{iolite,paste}.
+Page remapping exposes eligible pages after receive, with alignment restrictions~\cite{tcpmmap}.
+Retention and isolation do not inherently require specialized NIC features.
+
+Pipes and files also support reuse: \code{tee} duplicates pipe references, and \sendfile
+accepts file ranges~\cite{spliceapi,sendfileapi}. They expose bounded FIFO queues or file-backed
+data, rather than independently named ranges captured from TCP.
+
+\subsection{Costs depend on the interface}
+\label{sec:borrowing:costs}
+
+\paragraph{Resident memory.} The kernel must keep shared pages resident while it uses them.
+Default \sendzc and \msgzc pin application pages for each send; registering buffers moves
+that work to registration~\cite{msgzerocopy,sendzcdoc}. Kernel-owned buffers avoid pinning
+application pages, but still consume resident memory and need limits on retention.
+
+\paragraph{Safe reuse.} An application must not modify bytes that a send still uses. A reuse
+notification tells it when modification is safe; this need not stall every send, and
+notifications can be batched~\cite{msgzerocopy,sendzcdoc}. On receive, returning buffers makes
+room for later packets. Holding buffers is allowed, but reduces the free pool.
+
+\paragraph{Receive placement.} Hardware \recvzc and device-memory TCP require separate
+headers and steered queues~\cite{zcrx,devmem}. Queue leasing extends this arrangement to
+containers but still needs physical queues and steering rules~\cite{netkit}. These costs
+differ from software buffer selection or page remapping.
+
+\paragraph{Stack handling.} Copy avoidance also depends on how the stack represents shared
+data. For example, Linux copies \msgzc data delivered to local packet sockets, so a packet
+tap can reintroduce copies~\cite{msgzerocopy}. Such behavior must be checked separately from
+pinning and buffer management (\S\ref{sec:eval:tx}); it is not a universal property of
+application-owned memory.

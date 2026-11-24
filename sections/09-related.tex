@@ -1,0 +1,62 @@
+% Related work: credit existing immutable sharing, I/O memory segregation and buffer naming.
+% Compare both access contracts with their predecessors, without claiming segregation is new.
+% Comparisons checked against primary papers and kernel documentation; see refs.bib.
+\section{Related Work}
+\label{sec:related}
+
+Shared buffers, memory segregation and buffer handles have precedents. \sys combines
+capture after ordinary TCP processing with named retention or mapped access through one
+object interface.
+Table~\ref{tab:space} compares access and deployment requirements.
+
+\paragraph{Shared buffers and stored network data.} Fbufs shares buffers across protection
+domains through page mappings~\cite{fbufs}. IO-Lite extends this approach to immutable data
+shared by applications, the file cache and networking, including retained slices and
+concurrent readers~\cite{iolite}. Its receive path modifies driver software to select buffers
+with the appropriate access permissions before storing each packet.
+
+PASTE lets received packet buffers become stored values and supports a kernel TCP
+path~\cite{paste}. It exposes the buffers through a netmap extension; isolating multiple
+applications requires partitioning their receive memory. These systems establish that
+received data can be retained and reused without copying. \sys's named mode instead exposes
+checked operations on byte ranges, so applications need no mapping of the underlying pages.
+It trades direct byte access for compatibility with ordinary receive buffers.
+
+\paragraph{Segregated writable I/O memory.} MAIO already segregates I/O memory from other
+kernel memory and shares those pages with applications while retaining kernel
+TCP~\cite{maio}. It assumes header/data split to keep parsed headers private. Per-process
+hardware receive rings isolate applications; without them, use is limited to a privileged
+process. \sys's mapped mode preserves that device-wide trust requirement while replacing
+header split with private software copies of protocol headers and driver control fields.
+It integrates the area with \iouring's receive providers and binds it to the shared object
+interface for retention and kernel-managed page lifetimes. Driver support is still required.
+The segregation keeps
+kernel metadata and parsing copies outside the writable area; it does not isolate one
+tenant's payload from another's.
+
+\paragraph{Kernel-buffer names.} ublk lets a userspace block server issue
+I/O using registered indices for request buffers~\cite{ublkzc}. \sys applies explicit
+capture, retention and range-send operations to TCP data, with the object and page lifetimes
+described in \S\ref{sec:lending:objects}.
+
+\paragraph{Forwarding and transparent proxies.} Kernel-assisted body forwarding predates
+\sys~\cite{rosu03}. Pipes retain and duplicate references, and files support range
+sends~\cite{spliceapi,sendfileapi}. \sys instead exposes a retained object taken directly
+from a received stream.
+
+Libra preserves the socket interface for unmodified proxies by copying selected metadata and
+anchoring bodies for forwarding~\cite{libra}. Protocol-aware BPF programs coordinate its
+receive and send paths; anchoring limits and copy fallback manage buffer pressure.
+\sys requires application changes in exchange for explicit control: the application chooses
+which ranges become objects, when to release them and which later sends use them.
+
+\paragraph{Specialized kernel data paths.} BMC caches values and serves eligible memcached
+UDP reads in the kernel, with other requests handled by memcached~\cite{bmc}.
+BPF-Broker fans out single-packet UDP publications~\cite{bpfbroker}. \sys supplies
+retained TCP objects to application logic in userspace, leaving policy outside its kernel
+interface.
+
+\paragraph{Copy management.} zIO tracks data in unmodified applications
+to eliminate unnecessary copies~\cite{zio}; Copier coordinates asynchronous copying for
+applications and kernel services~\cite{copier}. These approaches let applications continue
+working with buffers; \sys asks them to manage retained payload through handles.

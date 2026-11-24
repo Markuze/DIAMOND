@@ -1,0 +1,24 @@
+% Figure: request/response and the key-value store, the fourth and fifth experiments of
+% eval/2026-11-11-fixed-objects/EVAL.md (rr, kv). A placeholder of the size the figure will take:
+% four panels in one row, one core and four cores for each experiment. Nothing of it is measured
+% by size yet (rr has F8's and F10's 64-byte row; kv has K1, capacity). When the tables land,
+% figures/mkdata.py emits rr_full.csv and kv_full.csv and this file becomes a groupplot in the
+% style of the other three (figures/style.tex).
+\begin{figure*}[t]
+\centering
+\fbox{\parbox[c][1.2in][c]{0.47\textwidth}{\centering\small
+\textbf{Request/response through the relay}\\[0.5ex]
+Transactions per second and CPU per transaction against the size of the request and the
+response, 64 bytes to 64\KiB; one core and four cores.\\ No relay, the copying relay, \splice,
+the named relay, the bound relay, the mapped relay.\\[0.5ex]
+\todomi{not measured by size (F28)}}}\hfill
+\fbox{\parbox[c][1.2in][c]{0.47\textwidth}{\centering\small
+\textbf{The key-value store}\\[0.5ex]
+Operations per second and CPU per million operations against the value's size, 4\KiB to
+1\MiB; one server core and four.\\ The store by name, bound to a mapped area and copying;
+memcached; Redis.\\[0.5ex]
+\todomi{not measured (K2, K3)}}}
+\caption{Request/response through the relay (left) and the key-value store (right), at full
+speed. \todoi{both are placeholders of the figure's size until their campaigns report}}
+\label{fig:rrkv}
+\end{figure*}

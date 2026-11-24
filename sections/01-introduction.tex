@@ -1,0 +1,85 @@
+% Trust boundaries motivate hardware-agnostic lending by name and by mapping.
+% Quantitative headlines await qualified campaign updates; historical findings are scoped in §8.
+\section{Introduction}
+\label{sec:intro}
+
+Proxies forward payload, caches retain it, and filters inspect or edit it. Each needs
+control over where data goes and how long it stays. Ordinary socket reads and writes copy
+payload into application memory and back into the kernel, consuming CPU time and memory
+bandwidth~\cite{cai21,libra}. Our goal is to avoid those copies while retaining kernel TCP,
+without depending on specialized NIC features.
+
+Existing interfaces address parts of this problem. \sendfile sends file data; \splice
+forwards through a pipe. \msgzc and \iouring's zero-copy send (\sendzc) transmit application
+buffers whose contents must remain unchanged until release~\cite{msgzerocopy,sendzcdoc}.
+\iouring's hardware-assisted receive path maps payload
+placed into dedicated queues using NIC header split and flow steering~\cite{zcrx}.
+
+Receive placement addresses two protection problems: keeping application writes away from
+state the kernel relies on, and limiting access to other applications' traffic. Hardware
+receive addresses both before placing payload: header split keeps parsing state private,
+and flow steering separates receive pools. We ask how software can enforce these boundaries
+without those NIC features, while supporting retention and reuse after TCP processing.
+
+\sys, \sysfull, applies one principle to both: \emph{lend, don't borrow}. The
+kernel owns I/O storage and lends access according to the application's needs and authority.
+Kernel TCP still performs protocol processing, flow control and retransmission. By
+\emph{hardware-agnostic}, we mean that neither mode requires specialized NIC features
+such as header split or per-application flow steering.
+
+\paragraph{Named mode.} An unprivileged application captures a plaintext TCP range as an
+\emph{opaque data object}. Its handle supports copied reads, retention after connection
+closure and concurrent range sends. These operations are read-only: they provide no mapping
+or in-place write.
+
+A proxy can forward an object while keeping its handle for a retry. The application controls
+the logical data; the kernel manages storage. Like a file, an object has an independent
+lifetime, but eligible capture retains received pages without the copy needed to fill a
+file through ordinary reads and writes. Range checks expose only selected bytes, leaving
+surrounding data unmapped. No driver change is needed.
+
+\paragraph{Mapped mode.} A trusted application maps a dedicated kernel-allocated receive
+area read-write. Kernel control structures and the private header copies used for parsing
+remain outside it. This \emph{memory segregation} permits direct I/O access without exposing
+arbitrary kernel memory.
+
+Software driver/provider integration supplies buffers and private header copies. The
+application can inspect or edit payload in place and retain it by handle. Writes must be
+coordinated with outstanding uses: references preserve storage lifetime, not a content
+snapshot. Registration requires \capnetadmin and trust with every flow on the device;
+segregation does not isolate tenants' payload.
+
+Both modes share retained objects and range sends. Object sends need no application-memory
+pin or body-buffer reuse notification; the kernel tracks page references.
+
+IO-Lite, PASTE and MAIO establish shared buffers, retention and I/O-memory
+segregation~\cite{iolite,paste,maio}. \sys combines unmapped access to ordinary post-TCP
+buffers with writable I/O memory and shared retained objects. For mapped access, private
+software header copies replace MAIO's reliance on hardware header split; device-wide trust
+avoids requiring a hardware receive ring per application. The contribution is this
+hardware-independent arrangement and its object interface, rather than memory segregation
+or retention alone.
+
+Selected reads and unsafe receive buffers still require copies. Retained buffer space and
+per-object work remain costs, making copying competitive for small messages.
+
+This paper makes four contributions:
+\begin{enumerate}
+\setlength{\itemsep}{0pt}
+\item \textbf{An argument from protection boundaries}: how lending kernel-owned storage
+  separates access policy from hardware receive placement (\S\ref{sec:borrowing}--\ref{sec:lending}).
+\item \textbf{Named mode}: unprivileged retention and concurrent range sends through
+  read-only operations, with bounded metadata and no payload mappings (\S\ref{sec:named}).
+\item \textbf{Mapped mode}: writable segregated I/O memory, private parsing copies and
+  software driver integration, with shared objects and buffer reclamation (\S\ref{sec:mapped}).
+\item \textbf{Implementation and evaluation}: Linux/\iouring prototypes and a matched
+  evaluation plan for both modes, with historical and provisional evidence distinguished
+  from qualified results for the current design
+  (\S\ref{sec:impl}--\ref{sec:eval}).
+\end{enumerate}
+
+Both prototypes run on cloud virtual machines with virtio-net, where hardware zero-copy
+receive is unsupported. Earlier campaigns measure bulk paths, small transactions and store
+capacity, with different costs across workloads. They do not validate the current allocator
+and reclamation design. Section~\ref{sec:eval} specifies the matched comparisons; quantitative
+results await qualified campaigns, including payload-edit and hardware-receive tests.
