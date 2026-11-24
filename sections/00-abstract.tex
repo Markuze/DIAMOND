@@ -1,8 +1,8 @@
-Ordinary sockets copy data between application and kernel memory. Zero-copy sends can
-borrow pinned application pages and report when they are safe to reuse. Lending in
-the other direction poses a protection problem. Some zero-copy
-receive interfaces rely on network hardware to separate payload from packet headers
-and other flows. We show how Linux can lend its own I/O buffers on commodity hardware.
+When the kernel gives applications access to I/O data, it must control what they can
+read or change. A writable receive buffer can expose both payload and packet headers
+that guide protocol processing. Some receive interfaces rely on network hardware to
+separate headers from payload and steer flows to application-specific queues. We show
+how Linux can lend access to its own I/O buffers on commodity hardware.
 
 \sys offers two ways to access the same kind of object. In \emph{named mode},
 applications use handles and ask the kernel to copy only the bytes they need to inspect.
@@ -11,7 +11,7 @@ area. Software separates this writable area from kernel control state and the he
 copies used for parsing. Mapped receive requires software driver support.
 
 In both modes, applications can retain and pass data by handle, and the kernel reclaims
-released buffers after I/O stops using them. Forwarding an object requires neither
-application-page pinning nor a separate buffer-reuse notification. TCP and UDP continue
-to run in the kernel. Block I/O illustrates how the same design carries data between
-storage and sockets.
+released buffers after I/O stops using them. This enables zero-copy forwarding without
+pinning application pages or waiting for a separate buffer-reuse notification. TCP and UDP
+continue to run in the kernel. Block I/O illustrates how the same design carries data
+between storage and sockets.
