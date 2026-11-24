@@ -1,7 +1,6 @@
 # The OSDI '27 submission, in LaTeX
 
-One file per section under `sections/`, in the order of the section plan in
-[`../outline.md`](../outline.md) ("Sections (2026-10-31)"). `main.tex` assembles them;
+One file per section under `sections/`. `main.tex` assembles the current manuscript;
 `macros.tex` holds the shared commands and the draft markers; `refs.bib` the references.
 
 - **Format.** The USENIX template: `usenix2019_v3.sty`, fetched from
@@ -12,12 +11,6 @@ One file per section under `sections/`, in the order of the section plan in
   references extra; 10-point type on 12-point leading; double-blind.
 - **Build.** `make` (latexmk). `make clean`. `make pages` prints the page on which the body ends
   (the limit is 12) and the total with the references and the draft notes.
-- **Length** (2026-11-16). The revised draft, including result placeholders, has a 12-page body
-  and 13 pages including references and draft notes. Tectonic checks with draft
-  markers shown and with `\draftfalse` both end the body on page 12. The desktop editor
-  also compiles the saved source. Type size, leading, margins and figure sizes are unchanged;
-  the cuts remove repeated explanations and peripheral comparisons. Use `make pages` to
-  check a local build. `\draftfalse` removes the notes and tags for submission.
 - **Figures and result slots** (2026-11-16). At the owner's request, receive, send and forwarding
   now have explicit figure placeholders while Alex updates qualified results. Section 8 keeps
   the workloads and comparison rules, with quantitative slots rather than superseded CPU
@@ -33,23 +26,19 @@ One file per section under `sections/`, in the order of the section plan in
   tables do not supply final-design results. `figures/rrkv.tex` is not included in the build.
   `sections/08-evaluation-long.tex` is the long form replaced on 2026-11-10, kept unbuilt as the
   source of the paragraphs the short form leaves out.
-- **Names and argument.** The system is `\sys`, which prints DIOMND. Its two peer modes are
-  *named* (read-only operations on unmapped objects) and *mapped* (read-write I/O memory
-  segregated from private kernel control state and parsing copies). The opening separates
-  protection of kernel state from authority over other flows, then derives both modes and
-  their independence from specialized NIC features. The four contributions are that argument,
-  named mode, mapped mode, and implementation/evidence. Shared object lifetimes are
-  described in Section 3. The authors' earlier work
-  is cited in the third person; branch names, tool names and host names stay out of the text.
-- **IRQ and block-I/O audit** (2026-11-16). Sections 3--6 distinguish the design's per-CPU
-  task/softirq magazine pairs, their bounded extra stock and the mapped receive pool's different
-  cache discipline. The new allocator passed source review with caveats; follow-up fixes and
-  integration remain, and it is not installed or measured. Fixed-pool
-  implementation and provisional measurements are a separate version. Block I/O appears only
-  as a proposed storage-backed-object use case in Discussion. Its alignment, tail padding,
-  device support and lifetime contracts remain unresolved; the audit at the top of
-  [`../../docs/bio_design_spec.md`](../../docs/bio_design_spec.md) records why existing storage
-  paths and network-only results do not establish its benefit.
+- **Design and examples.** DIOMND has two access modes for retained kernel I/O objects.
+  Named mode lends checked access by handle. Mapped mode also lends writable access to
+  an eligible I/O area, with control state and network parsing copies kept private.
+  Sections 3–5 describe the shared lifetimes, IRQ-aware recycling and access rules.
+  Section 7 uses TCP streams, UDP datagrams and block I/O to illustrate both modes.
+  Section 6 describes the combinations exercised by the Linux prototypes.
+- **Endpoint sources.** The TCP design follows
+  [the design specification](../../docs/design_spec.md). The datagram example draws on
+  [the UDP relay notes](../../apps/fwdbase/README-UDP.md) and the vendored UDP interface.
+  The block example draws on [blockbench](../../apps/blockbench/README.md) and the later
+  dense-capture branch. [The block proposal and audit](../../docs/bio_design_spec.md)
+  record the original design questions. The prototype uses a bounded raw-device
+  endpoint and a more restricted write interface than the proposal.
 - **Numbers.** Every result comes from [`../../CLAIMS.md`](../../CLAIMS.md), with its complete
   qualification and bounds. Pinned placement alone does not establish current qualification;
   preserve historical and unmatched labels. Do not pool CPU estimators, builds or campaigns.

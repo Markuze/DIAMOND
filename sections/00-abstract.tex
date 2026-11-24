@@ -1,17 +1,16 @@
-A TCP proxy often forwards data unchanged. Ordinary sockets still copy that data into the
-proxy's memory and back into the kernel. We present \sys, a Linux interface that lends
-applications access to received TCP data in kernel memory. Applications decide what to keep
-and where to send it. The kernel runs TCP and manages the buffers.
+A proxy forwards data it has just received, and a storage server sends data it has just read.
+In both cases the kernel already has the bytes. Ordinary reads and writes copy them through
+application memory. We present \sys, a Linux design that lends access to kernel-owned
+data and lets applications keep it for later use.
 
-In \emph{named mode}, unprivileged applications use handles to retain and resend selected
-byte ranges. Reads copy only the requested bytes, and the underlying pages stay unmapped.
-Named mode works with existing drivers.
+Applications get two ways to access the same kind of object. In \emph{named mode}, they
+refer to data by handle and copy out only the bytes they want to inspect. In
+\emph{mapped mode}, trusted applications read and edit data in a dedicated I/O area.
+Kernel control state stays outside that area. In both modes, the kernel manages the
+buffers and keeps them alive while an operation uses them.
 
-In \emph{mapped mode}, a trusted application maps a dedicated I/O area to read or edit
-payload in place. The kernel keeps its control state and the header copies it uses to parse
-packets outside that area. This mode requires driver support and trust with all traffic on
-the device.
-
-Both modes let applications keep data after the receiving connection closes. They work
-without hardware that splits headers from payload or steers traffic to separate receive
-queues for each application.
+TCP byte ranges, UDP datagrams, and block ranges illustrate how the design composes
+different kinds of I/O. Each keeps its own boundaries and completion rules. An application
+can, for example, retain data from a block read and send it through a socket using the same
+handle. Network lending preserves kernel protocol processing and needs no hardware
+header splitting or per-application receive queues.

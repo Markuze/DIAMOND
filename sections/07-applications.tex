@@ -1,54 +1,73 @@
-% Concrete application flows, checked against apps/fwdbase/fb_opaque.c,
-% apps/obench/obench.c, apps/okvs/okvs.c and the evaluation plans.
-% Implemented benchmark modes are not evidence for unmeasured application scenarios.
-\section{Applications}
+% TCP: docs/design_spec.md. UDP: apps/fwdbase/README-UDP.md and apps/uapi/ADDONS.md.
+% Block I/O: apps/blockbench/README.md and its candidate ABI, including the dense ingest branch.
+\section{Examples Across I/O Endpoints}
 \label{sec:apps}
 
-\paragraph{Named forwarding.} Our framed benchmark relay parses a copied length header,
-discards it and captures the body. It sends the object to a configured destination with a
-generated length prefix, marking the send as its last use. The parser uses the same stream
-library with copying or object storage.
+An endpoint determines which bytes form an object, which I/O operations can use it, and
+when those operations finish. Named and mapped access determine what the application
+can do with the bytes while it holds the object. Each example illustrates that choice.
 
-The forwarding experiments use a byte-stream relay: query available bytes, capture them
-and send with the last-use flag, in both directions. A limit on bytes awaiting completion
-lets a slow destination slow input through TCP flow control.
+\subsection{TCP: ranges in an ordered stream}
+\label{sec:named:capture}
+\label{sec:named:send}
 
-\paragraph{Mapped forwarding and processing.} The implemented bound relay uses the same
-operations with a store bound to the I/O area, forwarding unchanged bytes. A trusted
-application could query an object's extents, validate the area offsets and read those bytes
-directly. The kernel reclaims buffers after all holders release them; no raw receive
-references are returned by the application.
+A stream relay attaches a connected socket to a store and receives a token granting
+exclusive receive access. It tracks offsets starting at the first unread byte. The
+relay copies a small header with \code{INSPECT}, discards it, and asks
+\code{RECV\_OBJECT} for the body. The request can wait for bytes to arrive, and publishes
+a handle only after the entire range is ready. A failed capture returns its prefix to
+the store's undecided input while the stream stays open. In contrast, discarded bytes
+cannot be restored. Data that the collector has not taken stays in TCP, preserving
+receive-window backpressure.
 
-An editing extension, neither implemented nor measured, could replace a fixed-width
-application field while the relay exclusively owns the captured range. Keeping the length
-preserves framing. The relay would send by handle, avoid edits while those bytes might
-still be in use, and stop accessing extents before releasing or transferring the handle.
+In named mode the relay sends by handle, optionally adding a generated header. TCP
+sends can gather ranges and resume when the socket has room. A queue per store and
+destination keeps frames in order across retries. A send marked as the last use
+consumes its handle at admission and reports consumption even if it later fails.
+In mapped mode the relay binds to a receive area, gets the same handle and can also
+look up the body's offsets. For example, a filter could edit a fixed-width field before
+sending, then stop writing while TCP uses the data. Raw mapped relays instead manage
+the receive leases explicitly (\S\ref{sec:mapped}).
 
-The implemented raw mapped relay instead uses \recvzc and \sendzc, pins each send's buffers
-and returns receive references after buffer-reuse notifications. Copying, \splice and sockmap
-relays provide the comparisons in \S\ref{sec:eval:fwd}.
+An in-memory key-value store uses the same stream operations. A \code{SET} supplies the
+value's range. The server keeps the key and eviction policy, and the store keeps the
+object. A \code{GET} combines generated framing with the retained value. Concurrent
+clients can hold independent send references while the server replaces an index entry.
 
-\paragraph{Named storage.} Our store implements the memcached text protocol. A
-\code{SET} parses the command line to obtain the key and value length,
-discards the command bytes, and captures the value as an object. It validates the trailing
-delimiter before adding the value to the index. The application keeps the key, expiry time
-and replacement policy; the kernel keeps the value's bytes.
+\subsection{UDP: complete datagrams}
+\label{sec:named:udp}
 
-On a \code{GET} hit, it sends the held value with a generated response header and trailer.
-Repeated readers share the value. A pending reply keeps an application reference until its
-send completes, so replacement or eviction does not invalidate that reply. Expired entries
-are misses; eviction follows a least-recently-used policy adjusted under memory pressure.
+A UDP relay needs message boundaries instead of stream offsets. The IPv4 receive
+operation returns one complete payload with a handle and metadata for the peer, local
+address and interface. Even an empty datagram has a handle. The named relay can copy a
+prefix to choose an upstream. A mapped variant can read that prefix directly from
+eligible receive pages while the kernel keeps the parsed headers and routing state
+private. Both preserve the datagram boundary and pass an explicit destination to UDP.
 
-The same server selects copying, named or mapped-bound storage while keeping its parser and
-index. An optional small-value path keeps values in application memory. The public build has
-one worker. An experimental multiworker version shares the keyspace and budget; its recorded
-named/copy functional checks do not qualify performance, and mapped qualification remains pending.
+The prototype send form passes one whole object as one datagram and takes a last-use
+flag. The completion reports handle consumption separately from the transmit result.
+It is not a delivery acknowledgment, and a short or failed operation cannot be retried
+as a stream suffix. UDP provides no receive-window backpressure. The relay bounds its
+waiting work and can drop a datagram under pressure. Forwarding encrypted datagrams
+does not make the relay a QUIC endpoint.
 
-\paragraph{Further workloads.} The benchmark tool implements retention and fan-out modes;
-their performance remains unmeasured. A proxy demonstration that combines retention, mirroring and
-replay after a backend failure remains planned.
+\subsection{Block I/O: ranges on a device}
+\label{sec:named:block}
 
-Store performance comparisons and qualification of mapped and multiworker paths remain pending
-(\S\ref{sec:eval:planned}).
-\todom{measure mapped reading and editing, retained-object reuse and fan-out; evaluate the
-planned proxy scenario and store variants on the revised build}
+A storage service binds an authorized raw-device descriptor to a window with read or
+read/write rights and limits on request size and depth. Offsets are relative to the
+window. A successful read publishes a handle for the entire requested range. A failed
+read publishes nothing. The service can send the completed object over TCP and retain
+it for later replies. Named access keeps the read buffers unmapped. A mapped read
+targets a compatible I/O area, letting the service inspect or change the result
+after the read completes. Either can pass the same object to another endpoint.
+
+In the other direction, a block write reads the bytes of an object through its handle.
+The write path accepts a whole object that meets device alignment and layout rules.
+For example, the TCP ingest prototype copies received fragments into block-compatible
+buffers at capture before issuing a write from those buffers. That copy is part of
+ingest. A mapped writer can prepare data in a compatible area and must keep it stable
+through completion. The operation holds its source references even if the application
+releases the handle. In the newer prototype, a consuming write releases the handle
+after success. A completed device operation provides no durability guarantee, and a
+failed write can still have changed the destination.

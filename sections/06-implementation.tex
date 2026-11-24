@@ -1,57 +1,42 @@
-% Sources: docs/status-and-lineage.md, fixed-objects/IMPLEMENTATION.md and component READMEs.
-% Distinguish historical prototypes, fixed-pool kernels and the unmeasured CPU-context design.
+% Sources: docs/design_spec.md, docs/status-and-lineage.md, apps/uapi/ADDONS.md,
+% apps/fwdbase/README-UDP.md and apps/blockbench/README.md and candidate ABI.
 \section{Implementation}
 \label{sec:impl}
 
-Both modes have working interfaces. Three versions must be distinguished: historical
-prototypes, later fixed-pool kernels, and the current CPU/context-local design.
+The Linux prototypes integrate the object model with \iouring. The store provides
+handle checks, object retention, reads and release. Endpoint code handles the parts
+that depend on sockets or block devices. The access mode selects how the
+application sees the bytes.
 
-\paragraph{Named mode.} A prepared kernel series and liburing helpers implement the
-interface. The networking core supplies TCP's exclusive receive claim; \iouring collects
-bytes through \code{tcp\_read\_sock} and sends page references through the existing splice
-path. No driver change is required.
+\paragraph{Network integration.} TCP attaches an exclusive receive claim and uses
+\code{tcp\_read\_sock} to obtain data. Object sends pass page ranges to the existing
+splice path. An independent networking series reduces splitting of eligible
+large-page ranges for \splice, \sendfile and object sends. The mapped TCP path extends
+the virtio-net receive provider with a kernel-owned area and private copies of the
+headers and control fields that the kernel relies on. Object sends and raw mapped
+relays use different rules for returning receive references.
 
-\paragraph{Mapped mode.} Development kernels implement the kernel-allocated
-receive area, virtio-net support, raw \recvzc access and store binding, including the
-private-header integration of \S\ref{sec:mapped}. This code belongs
-to the mapped development lineage, outside the prepared named-mode series.
+\paragraph{Datagram and block prototypes.} The IPv4 UDP relay has named and copying
+backends. The named backend targets a UDP development kernel interface with its own
+receive and whole-datagram send operations. The block prototype binds a raw-device
+window and uses the ordinary object handle returned by a read in a TCP send. Its
+write path accepts a complete device-compatible object. One version compacts the
+received TCP object before writing, while the dense-capture path fills compatible
+buffers directly with one copy.
 
-\paragraph{Shared support.} An independent splice-helper series reduces splitting of eligible
-large-page ranges for object sends and \sendfile. Neither mode depends on it. A stream
-library supports the benchmarks, relays and store of \S\ref{sec:apps}.
+These examples separate endpoint semantics from access mode. The TCP prototype
+exercises both modes. The named UDP relay and raw-block benchmark exercise their
+endpoint operations with unmapped objects. Their mapped counterparts require
+eligible mapped backing as described in \S\ref{sec:mapped}.
 
-\paragraph{Recorded checks.} Checks cover patch application, compilation and focused unit
-tests. The final standalone named series has scoped user-mode Linux (UML) unit-test
-qualification; that does not establish native multicore or performance behavior.
-Splice-helper tests cover final source and memory errors.
-Mapped checks exercise
-byte integrity, writes to mapped virtio control fields during receive, outside page
-references, re-registration and teardown. These bounded checks do not validate arbitrary
-drivers, parsers or concurrent payload edits.
+\paragraph{Resource management.} The shared design uses fixed pools and CPU-local
+recycling. The prepared named series, the mapped network integration and the
+endpoint prototypes are separate development lineages. In particular, the
+fixed-pool kernels used per-registration caches before the task and soft-interrupt
+design. Preallocated object metadata does not eliminate ordinary socket, block,
+or driver allocations. Functional checks cover the standalone named series,
+the lifetime of mapped receive references, and the prototype device read and
+write paths.
 
-\paragraph{Historical measurements.} Earlier Linux prototypes allocate object metadata
-and page records at runtime, use byte admission with waiting requests, and support
-compaction. Their mapped path reclaims pages through a per-page waiting queue. They do not
-evaluate the current design.
-
-\paragraph{Fixed-pool kernels.} Later kernels preallocate metadata and owned buffers, with
-recorded functional checks. Their provisional send/receive measurements remain unqualified.
-They retain per-registration caches and interrupt-masking return paths, rather than the
-pairs of \S\ref{sec:lending:objects}. Known mapped-path defects and an open reclamation
-gate also prevent treating those measurements as validation of the final mapped design.
-
-\paragraph{Current design and remaining work.} The CPU/context-local revision has passed
-source review with caveats; follow-up fixes and integration remain. It is not installed or
-measured. Cache hits do not mask interrupts or bottom halves;
-shared-pool access still locks. This design targets conventional, non-real-time kernels;
-\code{PREEMPT\_RT} remains unqualified. The mapped receive pool uses its separate cache
-discipline (\S\ref{sec:mapped}).
-
-The final design's pool sizing and accounting need reconciliation with each selected build,
-including copied payload, request and framing storage. Object preallocation is not a claim
-that TCP allocates nothing. Integration, exhaustion and reclamation checks must pass before
-the campaigns of \S\ref{sec:eval:planned}; compaction remains deferred in the design.
-\todom{qualify CPU/context-local recycling, its memory provisioning and final mapped reclamation;
-replace provisional and historical data only with recorded, qualified campaigns}
 \todod{add the paper's coding-assistance disclosure, consistent with the patchsets and
 submission requirements}

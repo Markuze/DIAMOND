@@ -1,62 +1,32 @@
-% Related work: credit existing immutable sharing, I/O memory segregation and buffer naming.
-% Compare both access contracts with their predecessors, without claiming segregation is new.
-% Comparisons checked against primary papers and kernel documentation; see refs.bib.
 \section{Related Work}
 \label{sec:related}
 
-Shared buffers, memory segregation and buffer handles have precedents. \sys combines
-capture after ordinary TCP processing with named retention or mapped access through one
-object interface.
-Table~\ref{tab:space} compares access and deployment requirements.
+\paragraph{Shared I/O data.} Fbufs shares pages across protection domains through
+mappings~\cite{fbufs}. IO-Lite extends that idea with immutable buffers shared among
+applications, networking and the file cache~\cite{iolite}. PASTE lets an application
+retain received buffers as stored values and includes a kernel TCP path~\cite{paste}.
+\sys applies checked handle operations to existing kernel I/O paths. It also lends
+writable pages from an eligible I/O area, with the same object bounds and lifetime rules.
 
-\paragraph{Shared buffers and stored network data.} Fbufs shares buffers across protection
-domains through page mappings~\cite{fbufs}. IO-Lite extends this approach to immutable data
-shared by applications, the file cache and networking, including retained slices and
-concurrent readers~\cite{iolite}. Its receive path modifies driver software to select buffers
-with the appropriate access permissions before storing each packet.
+\paragraph{Writable I/O memory.} MAIO preserves kernel TCP and separates mapped I/O
+memory from kernel control state~\cite{maio}. Header splitting protects the headers
+used by the kernel, and receive rings can separate applications. Its privileged
+configuration allows device-wide access. \sys also supports device-wide trust and
+uses software copies of protocol headers and driver control fields to protect the
+state the kernel relies on. Object handles add explicit retention and reuse.
 
-PASTE lets received packet buffers become stored values and supports a kernel TCP
-path~\cite{paste}. It exposes the buffers through a netmap extension; isolating multiple
-applications requires partitioning their receive memory. These systems establish that
-received data can be retained and reused without copying. \sys's named mode instead exposes
-checked operations on byte ranges, so applications need no mapping of the underlying pages.
-It trades direct byte access for compatibility with ordinary receive buffers.
+\paragraph{Storage and networking.} \sendfile sends file ranges, and \splice and
+\code{tee} move or share data through pipes~\cite{sendfileapi,spliceapi}. Registered
+buffers compose with direct I/O and zero-copy sends~\cite{sendzcdoc}. ublk lets a
+userspace block server refer to kernel I/O request buffers using registered
+indices~\cite{ublkzc}. These systems already avoid copies on storage and network paths.
+\sys lets a single store name completed data from different endpoints and carry those
+names across later operations, subject to each endpoint's permissions and layout.
 
-\paragraph{Segregated writable I/O memory.} MAIO already segregates I/O memory from other
-kernel memory and shares those pages with applications while retaining kernel
-TCP~\cite{maio}. It assumes header/data split to keep parsed headers private. Per-process
-hardware receive rings isolate applications; without them, use is limited to a privileged
-process. \sys's mapped mode preserves that device-wide trust requirement while replacing
-header split with private software copies of protocol headers and driver control fields.
-It integrates the area with \iouring's receive providers and binds it to the shared object
-interface for retention and kernel-managed page lifetimes. Driver support is still required.
-The segregation keeps
-kernel metadata and parsing copies outside the writable area; it does not isolate one
-tenant's payload from another's.
-
-\paragraph{Kernel-buffer names.} ublk lets a userspace block server issue
-I/O using registered indices for request buffers~\cite{ublkzc}. \sys applies explicit
-capture, retention and range-send operations to TCP data, with the object and page lifetimes
-described in \S\ref{sec:lending:objects}.
-
-\paragraph{Forwarding and transparent proxies.} Kernel-assisted body forwarding predates
-\sys~\cite{rosu03}. Pipes retain and duplicate references, and files support range
-sends~\cite{spliceapi,sendfileapi}. \sys instead exposes a retained object taken directly
-from a received stream.
-
-Libra preserves the socket interface for unmodified proxies by copying selected metadata and
-anchoring bodies for forwarding~\cite{libra}. Protocol-aware BPF programs coordinate its
-receive and send paths; anchoring limits and copy fallback manage buffer pressure.
-\sys requires application changes in exchange for explicit control: the application chooses
-which ranges become objects, when to release them and which later sends use them.
-
-\paragraph{Specialized kernel data paths.} BMC caches values and serves eligible memcached
-UDP reads in the kernel, with other requests handled by memcached~\cite{bmc}.
-BPF-Broker fans out single-packet UDP publications~\cite{bpfbroker}. \sys supplies
-retained TCP objects to application logic in userspace, leaving policy outside its kernel
-interface.
-
-\paragraph{Copy management.} zIO tracks data in unmodified applications
-to eliminate unnecessary copies~\cite{zio}; Copier coordinates asynchronous copying for
-applications and kernel services~\cite{copier}. These approaches let applications continue
-working with buffers; \sys asks them to manage retained payload through handles.
+\paragraph{In-kernel forwarding and transparent access.} Kernel-assisted forwarding
+predates \sys~\cite{rosu03}. BMC handles eligible UDP cache requests in the kernel, and
+BPF-Broker fans out UDP publications~\cite{bmc,bpfbroker}. Libra anchors proxy payload
+for forwarding while keeping the socket API~\cite{libra}. zIO tracks data in
+unmodified applications to eliminate unnecessary copies~\cite{zio}. These systems
+specialize a path or preserve an existing programming interface. \sys exposes
+explicit retention and destination choice to application logic through handles.
