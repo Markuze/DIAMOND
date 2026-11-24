@@ -28,11 +28,10 @@ protocol and cryptographic processing.
 \section{Conclusion}
 \label{sec:conclusion}
 
-\emph{Lend, don't borrow} separates an application's choices about data from the
-kernel's management of its memory. Named objects give applications checked
-operations on unmapped data. Mapped objects add direct access inside a dedicated
-I/O area while kernel control state stays private. TCP streams, UDP datagrams
-and block ranges demonstrate how the same design can compose I/O across
-different endpoints while preserving each endpoint's boundaries and completion
-rules.
+\emph{Lend, don't borrow} lets applications retain and reuse data while TCP and UDP
+run in the kernel. Named objects provide checked operations on unmapped data.
+Mapped objects add direct access to a dedicated I/O area while kernel control
+state and parsing copies stay private. Both network modes work without hardware
+header splitting or per-application flow steering. Block I/O extends the same
+access and lifetime rules to transfers between storage and sockets.
 \label{body:end}

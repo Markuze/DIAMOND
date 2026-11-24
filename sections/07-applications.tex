@@ -1,11 +1,12 @@
 % TCP: docs/design_spec.md. UDP: apps/fwdbase/README-UDP.md and apps/uapi/ADDONS.md.
 % Block I/O: apps/blockbench/README.md and its candidate ABI, including the dense ingest branch.
-\section{Examples Across I/O Endpoints}
+\section{Examples for Network Services}
 \label{sec:apps}
 
-An endpoint determines which bytes form an object, which I/O operations can use it, and
-when those operations finish. Named and mapped access determine what the application
-can do with the bytes while it holds the object. Each example illustrates that choice.
+TCP and UDP services can reuse data within the kernel network stack. Block I/O lets
+them carry the same objects between storage and sockets. Each endpoint determines
+which bytes form an object and when the operation finishes. In each example, named
+and mapped modes determine how the application accesses the bytes.
 
 \subsection{TCP: ranges in an ordered stream}
 \label{sec:named:capture}

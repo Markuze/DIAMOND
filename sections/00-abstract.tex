@@ -1,16 +1,16 @@
-A proxy forwards data it has just received, and a storage server sends data it has just read.
-In both cases the kernel already has the bytes. Ordinary reads and writes copy them through
-application memory. We present \sys, a Linux design that lends access to kernel-owned
-data and lets applications keep it for later use.
+A proxy can forward a message unchanged, yet ordinary sockets copy it into application
+memory and back into the kernel. We present \sys, a design that lets applications
+retain and reuse data in kernel memory while Linux handles TCP and UDP.
 
-Applications get two ways to access the same kind of object. In \emph{named mode}, they
-refer to data by handle and copy out only the bytes they want to inspect. In
+In \emph{named mode}, applications use handles to keep data and pass it to another
+operation. To inspect a range, they ask the kernel to copy just those bytes. In
 \emph{mapped mode}, trusted applications read and edit data in a dedicated I/O area.
-Kernel control state stays outside that area. In both modes, the kernel manages the
-buffers and keeps them alive while an operation uses them.
+The kernel keeps control state and the header copies it uses for parsing outside
+the mapping. Named receive uses existing drivers, while mapped receive uses software
+driver integration. Both work without hardware header splitting or per-application
+flow steering.
 
-TCP byte ranges, UDP datagrams, and block ranges illustrate how the design composes
-different kinds of I/O. Each keeps its own boundaries and completion rules. An application
-can, for example, retain data from a block read and send it through a socket using the same
-handle. Network lending preserves kernel protocol processing and needs no hardware
-header splitting or per-application receive queues.
+TCP byte ranges, UDP datagrams, and block ranges illustrate both access modes.
+A storage server can read a block into an object and send it through a socket using
+the same handle. Each endpoint keeps its own boundaries and completion rules, and
+the kernel keeps the pages alive for as long as they are in use.

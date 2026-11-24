@@ -2,10 +2,11 @@
 \label{sec:intro}
 
 A proxy often forwards a message unchanged. A cache may send the same value to many
-clients. A storage server can read a block once and use it in several replies. With
-ordinary reads and writes, each application moves payload through its own memory even
-when it only needs to decide what to keep and where to send it. These copies consume CPU
-time and memory bandwidth~\cite{cai21,libra}.
+clients. Ordinary socket I/O moves payload through application memory even when
+the application only needs to decide what to keep and where to send it. These copies
+consume CPU time and memory bandwidth~\cite{cai21,libra}. We want applications to
+reuse data where the kernel already holds it, while keeping protocol processing in
+the Linux network stack.
 
 Linux already offers ways to avoid these copies. \splice transfers bytes through a pipe,
 \sendfile sends file ranges, and registered buffers can be used for both direct I/O and
@@ -26,15 +27,17 @@ Authority to access a socket or block device is separate from authority to use a
 
 \paragraph{Mapped mode.} Applications that need direct access can map a dedicated I/O
 area to read or edit data in place. Kernel control structures remain private. For
-networking, the kernel also parses private header copies, so software driver integration
-can supply the area without hardware header splitting or per-application flow steering.
+networking, the kernel also parses private header copies. The driver supplies the area
+in software. Both network modes are \emph{hardware-agnostic} because they work
+without NIC support for header splitting or per-application flow steering.
 The mapper must be trusted with the data in its area and must coordinate changes with
 ongoing I/O. A device-wide receive area requires trust with the device's traffic.
 
 TCP, UDP and block I/O illustrate how the same two access modes apply to different
 endpoints. A TCP relay can retain a range after a connection closes. A UDP relay handles
-one datagram at a time. A storage service can read an aligned range into an object,
-then send it through a socket or write it to a compatible device. In each case, the
+one datagram at a time. A storage server can read an aligned range into an object
+and send it in several replies. The same model also supports writes to compatible
+devices, so a network service can use it in both directions. In each case, the
 choice between named and mapped access determines how the application touches the
 bytes. The endpoint determines the operation's boundaries, permissions and completion.
 
