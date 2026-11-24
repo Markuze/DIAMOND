@@ -1,17 +1,16 @@
-When the kernel gives applications access to I/O data, it must control what they can
-read or change. A writable receive buffer can expose both payload and packet headers
-that guide protocol processing. Some receive interfaces rely on network hardware to
-separate headers from payload and steer flows to application-specific queues. We show
-how Linux can lend access to its own I/O buffers on commodity hardware.
+The kernel must protect its control state when it shares I/O data with applications.
+A receive buffer can hold both the payload an application wants to use and the headers
+the kernel needs to parse. Some receive interfaces use network hardware to split headers
+from payload and steer traffic into application-specific queues.
 
-\sys offers two ways to access the same kind of object. In \emph{named mode},
-applications use handles and ask the kernel to copy only the bytes they need to inspect.
-In \emph{mapped mode}, trusted applications can read and edit buffers in a dedicated I/O
-area. Software separates this writable area from kernel control state and the header
-copies used for parsing. Mapped receive requires software driver support.
+We present \sys, a Linux design that lends access to kernel-owned I/O buffers on commodity
+hardware. In \emph{named mode}, applications use handles and copy out only the bytes they
+need to inspect. In \emph{mapped mode}, trusted applications read and edit buffers in a
+dedicated I/O area. The network driver supplies receive buffers from that area while the
+kernel keeps control state and the header copies it parses in private memory.
 
-In both modes, applications can retain and pass data by handle, and the kernel reclaims
-released buffers after I/O stops using them. This enables zero-copy forwarding without
-pinning application pages or waiting for a separate buffer-reuse notification. TCP and UDP
-continue to run in the kernel. Block I/O illustrates how the same design carries data
-between storage and sockets.
+In both modes, applications can keep data and pass it between operations by handle. The
+kernel reclaims the pages when all uses end. A relay can therefore forward data without
+copying the payload, pinning application pages, or waiting for a separate buffer-reuse
+notification. TCP and UDP stay in the kernel. The same design also carries data between
+block devices and sockets.
