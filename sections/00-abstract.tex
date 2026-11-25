@@ -1,10 +1,11 @@
-Sharing I/O buffers crosses a trust boundary between the kernel and applications.
-On transmit, copying gives the kernel control of its own buffer. Borrowing an
-application buffer avoids that copy and makes the application responsible for
-preserving the data until the kernel has finished using it. On receive, lending
-a buffer requires the kernel to grant access to payload while protecting its
-state and traffic outside the application's authority. Some receive interfaces
-rely on network hardware to enforce that separation.
+Applications often need to reuse I/O data the kernel already holds. The challenge
+is to share that data while the kernel retains control of buffer lifetimes and
+protects its own state. Copying keeps kernel and application buffers separate.
+Borrowing application buffers avoids a copy and requires applications to preserve
+the data until the kernel has finished using it. Some existing receive interfaces
+give applications direct access to payload. They require specialized support from
+the network device to keep protocol headers and unrelated traffic outside the
+application's buffers.
 
 We present \sys, a Linux I/O architecture that reverses the loan. The kernel
 retains ownership of I/O buffers and lends access according to the application's
