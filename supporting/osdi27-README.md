@@ -26,7 +26,7 @@ One file per section under `sections/`. `main.tex` assembles the current manuscr
   tables do not supply final-design results. `figures/rrkv.tex` is not included in the build.
   `sections/08-evaluation-long.tex` is the long form replaced on 2026-11-10, kept unbuilt as the
   source of the paragraphs the short form leaves out.
-- **Design and examples.** DIOMND has two access modes for retained kernel I/O objects.
+- **Design and examples.** DIAMOND has two access modes for retained kernel I/O objects.
   Named mode lends checked access by handle. Mapped mode also lends writable access to
   an eligible I/O area, with control state and network parsing copies kept private.
   Sections 3–5 describe the shared lifetimes, IRQ-aware recycling and access rules.
