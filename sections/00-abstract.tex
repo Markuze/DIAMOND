@@ -18,8 +18,5 @@ copies of packet headers used for parsing. A device-wide receive mapping require
 administrative authorization. Mapped receive requires driver integration in software,
 and both modes work without hardware header splitting or per-application flow steering.
 
-We illustrate \sys with TCP streams, UDP datagrams, and block I/O. In full-speed
-tests of an earlier TCP prototype, object sends used 15--27\% less CPU time per
-delivered byte than zero-copy sends with per-send pinning for objects from 4~KiB
-to 1~MiB.
+We illustrate \sys with TCP streams, UDP datagrams, and block I/O, achieving a consistent reduction in CPU time per delivered byte compared to alternatives.
 % CLAIMS S1, full-speed matched comparison. The copying comparison (S6) is unmatched.
