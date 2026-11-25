@@ -1,11 +1,11 @@
-Applications often need to reuse I/O data the kernel already holds. The challenge
-is to share that data while the kernel retains control of buffer lifetimes and
-protects its own state. Copying keeps kernel and application buffers separate.
-Borrowing application buffers avoids a copy and requires applications to preserve
-the data until the kernel has finished using it. Some existing receive interfaces
-give applications direct access to payload. They require specialized support from
-the network device to keep protocol headers and unrelated traffic outside the
-application's buffers.
+Letting applications reuse I/O data already in kernel memory requires the kernel
+to retain control over buffer lifetimes and protect its own state. Copying keeps
+kernel and application buffers separate at a cost in CPU time and memory bandwidth.
+Linux zero-copy sends can avoid a copy by borrowing application buffers, which
+the sender must leave unchanged until the kernel signals that they can be reused.
+Some existing receive interfaces require specialized network hardware to give
+applications direct access to payload while keeping protocol headers and unrelated
+traffic outside their buffers.
 
 We present \sys, a Linux I/O architecture that reverses the loan. The kernel
 retains ownership of I/O buffers and lends access according to the application's
