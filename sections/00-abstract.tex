@@ -1,16 +1,20 @@
-The kernel must protect its control state when it shares I/O data with applications.
-A receive buffer can hold both the payload an application wants to use and the headers
-the kernel needs to parse. Some receive interfaces use network hardware to split headers
-from payload and steer traffic into application-specific queues.
+The kernel must protect its state when it shares I/O buffers with applications. Ordinary
+I/O copies data across that boundary. A zero-copy send can borrow pinned application
+pages and report when they may be reused. Lending a receive buffer can expose packet
+headers alongside payload. Some receive interfaces rely on network hardware to separate
+the two and steer traffic into application-specific queues.
 
-We present \sys, a Linux design that lends access to kernel-owned I/O buffers on commodity
-hardware. In \emph{named mode}, applications use handles and copy out only the bytes they
-need to inspect. In \emph{mapped mode}, trusted applications read and edit buffers in a
-dedicated I/O area. The network driver supplies receive buffers from that area while the
-kernel keeps control state and the header copies it parses in private memory.
+We present \sys, a Linux design in which the kernel lends access to its own I/O
+buffers. In \emph{named mode}, unprivileged applications use checked handles to data
+that stays unmapped. In \emph{mapped mode}, applications can read and edit a dedicated
+I/O area. A network mapping exposes the device's traffic, so access requires
+administrative authorization. The driver supplies receive buffers in software and
+the kernel keeps its control state and the header copies it parses private.
 
-In both modes, applications can keep data and pass it between operations by handle. The
-kernel reclaims the pages when all uses end. A relay can therefore forward data without
-copying the payload, pinning application pages, or waiting for a separate buffer-reuse
-notification. TCP and UDP stay in the kernel. The same design also carries data between
-block devices and sockets.
+Both modes use \iouring for TCP, UDP, and block I/O. The kernel recycles pages after
+their last use. Applications can forward data by handle without copying the payload,
+pinning application pages, or waiting for a separate buffer-reuse notification. The design
+works without hardware header splitting or per-application flow steering.
+
+In earlier Linux TCP tests at full speed, sending larger objects used less CPU per delivered
+byte than sends that copy the payload or pin application pages each time.
