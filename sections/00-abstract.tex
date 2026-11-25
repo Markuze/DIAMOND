@@ -1,17 +1,21 @@
 Sharing I/O buffers crosses a trust boundary between the kernel and applications.
-The kernel can copy data into memory it controls. When it borrows an application
-buffer, it relies on the application to preserve the data until the kernel is done with it. When the kernel lends a buffer, it must give the application access to payload while protecting kernel state and traffic outside the application's authority.
-Some receive interfaces rely on the network device to enforce that separation.
+On transmit, copying gives the kernel control of its own buffer. Borrowing an
+application buffer avoids that copy and makes the application responsible for
+preserving the data until the kernel has finished using it. On receive, lending
+a buffer requires the kernel to grant access to payload while protecting its
+state and traffic outside the application's authority. Some receive interfaces
+rely on network hardware to enforce that separation.
 
-We present \sys, a Linux I/O architecture that reverses the loan by separating
-payload access from page ownership. In \emph{named mode}, unprivileged applications
-retain kernel-owned objects through checked handles, with the backing pages unmapped.
-In \emph{mapped mode}, trusted applications receive read/write access to a dedicated
-I/O region. Software segregates that region from kernel control state and the private
-copies of packet headers used for parsing. A device-wide receive mapping exposes the
-device's traffic and requires administrative authorization. Mapped receive requires
-software driver integration, and both modes work without hardware header splitting
-or per-application flow steering.
+We present \sys, a Linux I/O architecture that reverses the loan. The kernel
+retains ownership of I/O buffers and lends access according to the application's
+authority. \emph{Named mode} gives unprivileged applications checked handles to
+retained objects whose backing pages remain unmapped. \emph{Mapped mode} gives
+trusted applications read/write access to a dedicated I/O region. For mapped
+receive, the driver supplies buffers from that region, and the kernel keeps
+control state and the header copies used for parsing outside the mapping.
+A device-wide mapping requires administrative authorization because it exposes
+the device's traffic. Neither mode requires hardware header splitting or
+per-application flow steering.
 
 We illustrate \sys with TCP streams, UDP datagrams, and block I/O, achieving a consistent reduction in CPU time per delivered byte compared to alternatives.
 % CLAIMS S1, full-speed matched comparison. The copying comparison (S6) is unmatched.
