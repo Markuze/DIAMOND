@@ -1,15 +1,20 @@
-% Two lending modes, followed by their common object representation and lifetimes.
-% The CPU/context-local design is distinct from historical and fixed-pool measurement kernels.
-\section{Lending Kernel Memory}
+\section{Lending Kernel-Owned Buffers}
 \label{sec:lending}
 
-\sys objects hold bytes that an application has chosen to keep. The store manages their
-lifetime independently of the source. A TCP object contains a byte range, a UDP object
-holds one complete message, and a block read produces an object from a device range.
-Any of these objects can use either access mode. A mapped object needs backing pages in a
-dedicated area eligible for its endpoint. An operation can use a handle wherever its
-destination accepts the object's extent and layout. Figure~\ref{fig:modes} shows the access
-boundaries.
+The kernel can lend access to a buffer without giving up the right to recycle
+its pages. \sys represents the bytes worth keeping as an \emph{object} and
+gives the application a handle to it. The handle names data independently of
+where it came from. For example, a server can read a range from a block device,
+send it to two clients, and release it without reopening the device or reading
+the range again.
+
+Two decisions determine how an object can be used. The endpoint defines its unit
+of I/O, such as a range of a TCP stream, a UDP datagram, or an aligned block
+range. The access mode defines how the application reaches those bytes
+(Figure~\ref{fig:modes}). Named mode lends a handle with checked, read-only
+access. Mapped mode also lends direct read/write access to a dedicated region
+of memory. Either mode can supply a later operation if the destination accepts
+the object's length and layout.
 
 \begin{figure}[t]
 \centering
@@ -19,7 +24,7 @@ boundaries.
 \node[accessbox] (namedapp) at (-0.25\columnwidth,0)
   {Named mode: read-only by handle\\unprivileged application};
 \node[accessbox] (mappedapp) at (0.25\columnwidth,0)
-  {Mapped mode: read/write mapping\\device-trusted application};
+  {Mapped mode: read/write mapping\\trusted application};
 \node[accessbox] (namedkernel) at (-0.25\columnwidth,-0.9in)
   {Network or block data\\unmapped object pages};
 \node[accessbox] (mappedkernel) at (0.25\columnwidth,-0.9in)
@@ -33,63 +38,58 @@ boundaries.
 \draw[<->] (mappedapp.south) -- (mappedkernel.north)
   node[midway,fill=white] {direct\\read/write};
 \draw[->] (mappedkernel.south) -- (private.north)
-  node[midway,fill=white] {copy headers\\for parsing};
+  node[midway,fill=white] {network headers\\for parsing};
 \end{tikzpicture}
-\caption{Two ways to access retained data across the application/kernel boundary (dashed).
-Both modes use handles. Mapped objects also expose offsets into a writable I/O area.
-Control state and the header copies used for network parsing stay private.}
+\caption{The dashed line separates the application from the kernel. Both modes give
+the application handles. A trusted process can also map the dedicated I/O area.
+On network input, the kernel copies headers into private memory before parsing them.}
 \label{fig:modes}
 \end{figure}
 
-\subsection{Common objects and three lifetimes}
+\subsection{One object, three lifetimes}
 \label{sec:lending:objects}
 \label{sec:named:objects}
 
-A \emph{store} groups objects and capture state under one retention limit.
-An object has a fixed-size \emph{head}, recording its length and state, and a chain of
-fixed-size \emph{segments}. Each segment describes a page range and its next segment.
-Registration allocates arrays of heads and segments; creating and releasing objects takes
-and returns entries without allocating per-object metadata. This guarantee covers object
-metadata; copied-payload buffers and send-request storage need separate provisioning
-(\S\ref{sec:impl}).
+Consider the server's last send. The application is finished with the object,
+the send may still be queuing bytes to a socket, and TCP may need those bytes
+again for retransmission. \sys gives each user a distinct reference.
 
-An operation is \emph{admitted} when it has resolved its handles and acquired the references
-it needs.
-The shared design separates three lifetimes:
 \begin{enumerate}
 \setlength{\itemsep}{2pt}
-\item \textbf{Handle.} The name is valid until \code{FREE} or a consuming operation removes
-  it. The operation defines the point of consumption and reports it to the application.
-\item \textbf{Operation.} An admitted operation holds the object description while it
-  needs it. A block write, for example, must keep its source object and buffer description
-  through I/O completion, even if the application releases the handle.
-\item \textbf{Pages.} Networking can keep page references after an operation completes.
-  TCP may hold bytes for retransmission, and UDP may hold them while packets are in flight.
-  The kernel recycles pages only after all such uses end. Mapped network objects can keep
-  a separate reclamation record until their receive pages can return to the device
-  (\S\ref{sec:mapped}).
+\item \textbf{The handle} determines whether the application can start another
+  operation on the object. Explicit release removes the name. A TCP send
+  marked as the last use removes it when the kernel resolves the handle and
+  acquires its references, a step we call \emph{admission}.
+\item \textbf{The operation} keeps the object's description for as long as it
+  needs to locate the bytes. Each admitted TCP send has its own cursor, so a
+  slow client can pause without losing another client's place. A block write
+  keeps the description through I/O completion.
+\item \textbf{The pages} remain live while any consumer holds them. Once TCP
+  has queued the send, packets hold their own page references. The kernel can
+  drop the ordinary object's description even while TCP retains the data.
+  For a mapped receive buffer, the kernel also tracks when the page can safely
+  return to the device (\S\ref{sec:mapped:recycle}).
 \end{enumerate}
 
-Submission alone does not protect a handle against concurrent release. Keeping it through
-completion is a simple discipline for non-consuming requests. Once the application has
-released the handle, the kernel manages storage reclamation without a separate notification
-to the application. Each admitted TCP send has its own position in the segment chain, so
-destinations can progress independently.
+A request submitted on \iouring can still be waiting for admission. Keeping the
+handle until completion avoids racing a separate release with that request.
+After release, the kernel determines when the pages can be recycled. An
+application forwarding objects by handle needs the result of its I/O, but no
+additional notification to return the backing memory.
 
-\paragraph{CPU-local recycling.} A magazine allocator~\cite{magazines} keeps free entries in
-small batches. Each possible CPU has separate pairs of batches for tasks and soft interrupts.
-A task briefly disables preemption while using its pair; an interrupting softirq uses the
-other pair. A local take or return therefore needs no lock and masks neither interrupts nor
-bottom halves. Batch exchange and near-exhaustion access still lock the shared pool.
-Hard interrupts and NMIs defer returns and cannot allocate entries. Rings sharing a store
-use the caches of the CPUs they run on.
-
-Handle lookup and send ordering still require synchronization.
-
-\subsection{Costs and capacity}
+\subsection{Representing and bounding retained data}
 \label{sec:lending:cost}
 
-Store limits bound retained references and object metadata. Owned block-read buffers and
-mapped receive buffers also have their own pools. Holding more objects or issuing more I/O
-can leave fewer buffers for fresh work. The endpoint determines what can wait, fail, or be
-retried when capacity runs out (\S\ref{sec:named:memory}).
+A \emph{store} is the namespace for handles and the unit at which the kernel
+limits retained data. It represents each object with a fixed-size \emph{head}
+that records its length and state, and a chain of \emph{segments} that locate
+its bytes. A segment describes a range within one backing buffer. This lets
+the kernel publish a single handle even when a stream range spans several
+packets.
+
+At registration the kernel sets aside arrays of heads and segments. Creating
+an object takes entries from those arrays, and releasing its description
+returns them. This bounds object metadata and avoids allocating it on each
+request. Socket queues, buffers for copied data, and mapped I/O regions have
+their own memory costs. Sections~\ref{sec:named:memory} and~\ref{sec:mapped:recycle}
+explain what holding an object costs in each mode.

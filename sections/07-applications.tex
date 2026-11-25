@@ -1,74 +1,77 @@
-% TCP: docs/design_spec.md. UDP: apps/fwdbase/README-UDP.md and apps/uapi/ADDONS.md.
-% Block I/O: apps/blockbench/README.md and its candidate ABI, including the dense ingest branch.
-\section{Examples for Network Services}
+% Endpoint semantics: docs/design_spec.md, apps/fwdbase/README-UDP.md,
+% apps/blockbench/README.md and its candidate ABI, including the dense-ingest branch.
+\section{Using Kernel-Owned Buffers}
 \label{sec:apps}
 
-TCP and UDP services can reuse data within the kernel network stack. Block I/O lets
-them carry the same objects between storage and sockets. Each endpoint determines
-which bytes form an object and when the operation finishes. In each example, named
-and mapped modes determine how the application accesses the bytes.
+A relay can forward an object immediately. A cache can keep it for many
+requests. In both cases, the application chooses what to do with the bytes.
+The endpoint determines which bytes belong together and when an operation
+completes. The following examples show where those distinctions matter.
 
-\subsection{TCP: ranges in an ordered stream}
+\subsection{TCP: forwarding and retaining a stream range}
 \label{sec:named:capture}
 \label{sec:named:send}
 
-A stream relay attaches a connected socket to a store and receives a token granting
-exclusive receive access. It tracks offsets starting at the first unread byte. The
-relay copies a small header with \code{INSPECT}, discards it, and asks
-\code{RECV\_OBJECT} for the body. The request can wait for bytes to arrive, and publishes
-a handle only after the entire range is ready. A failed capture returns its prefix to
-the store's undecided input while the stream stays open. In contrast, discarded bytes
-cannot be restored. Data that the collector has not taken stays in TCP, preserving
-receive-window backpressure.
+Consider a TCP relay whose messages begin with a length field. The relay attaches
+the socket to its store and claims exclusive receive access. It inspects the
+length field, discards those header bytes, then requests an object containing
+the indicated body. TCP may deliver that body in pieces. The store publishes the
+handle only when the whole range is ready. If capture fails partway through,
+the prefix remains available while the stream is open. Bytes the collector has
+yet to take stay in the socket and remain subject to TCP flow control.
 
-In named mode the relay sends by handle, optionally adding a generated header. TCP
-sends can gather ranges and resume when the socket has room. A queue per store and
-destination keeps frames in order across retries. A send marked as the last use
-consumes its handle at admission and reports consumption even if it later fails.
-In mapped mode the relay binds to a receive area, gets the same handle and can also
-look up the body's offsets. For example, a filter could edit a fixed-width field before
-sending, then stop writing while TCP uses the data. Raw mapped relays instead manage
-the receive leases explicitly (\S\ref{sec:mapped}).
+A named relay can prepend a new header and send the body by handle. If the
+outgoing socket fills, the send resumes from its position in the object.
+The store orders sends to that destination across retries. A mapped relay
+can also look up the body's offsets and edit a fixed-width field before
+forwarding it. The edited bytes must remain stable while TCP may retransmit
+them. Either relay can mark a send as the object's last use. The kernel then
+consumes the handle at admission and reports this even if the send later fails.
 
-An in-memory key-value store uses the same stream operations. A \code{SET} supplies the
-value's range. The server keeps the key and eviction policy, and the store keeps the
-object. A \code{GET} combines generated framing with the retained value. Concurrent
-clients can hold independent send references while the server replaces an index entry.
+An in-memory key-value server uses the same interface to \emph{retain} a value.
+On \code{SET}, the server captures the value and indexes its handle by key. On
+\code{GET}, it sends a response header followed by the retained value. Two clients
+can request the same value without taking turns on its pages. If the server
+replaces the index entry, sends that have already acquired the old object can
+still finish.
 
-\subsection{UDP: complete datagrams}
+\subsection{UDP: routing a whole datagram}
 \label{sec:named:udp}
 
-A UDP relay needs message boundaries instead of stream offsets. The IPv4 receive
-operation returns one complete payload with a handle and metadata for the peer, local
-address and interface. Even an empty datagram has a handle. The named relay can copy a
-prefix to choose an upstream. A mapped variant can read that prefix directly from
-eligible receive pages while the kernel keeps the parsed headers and routing state
-private. Both preserve the datagram boundary and pass an explicit destination to UDP.
+An IPv4 relay receives a handle for one datagram, together with the sender,
+local address and receiving interface. Even an empty datagram yields a handle.
+In the named relay, a routing rule can read a single payload byte to choose an
+upstream server and send the whole object there. With mapped UDP capture, the
+relay could read that byte directly in the receive area and edit it in place
+before forwarding. UDP preserves the message boundary in either mode.
 
-The prototype send form passes one whole object as one datagram and takes a last-use
-flag. The completion reports handle consumption separately from the transmit result.
-It is not a delivery acknowledgment, and a short or failed operation cannot be retried
-as a stream suffix. UDP provides no receive-window backpressure. The relay bounds its
-waiting work and can drop a datagram under pressure. Forwarding encrypted datagrams
-does not make the relay a QUIC endpoint.
+The relay submits one whole object per send and checks whether the completion
+consumed the handle. Success means the local stack accepted the datagram.
+Delivery at the peer is a separate event. Replaying a short suffix would create
+a different datagram. UDP also offers no receive-window backpressure, so a
+relay with a full queue must allow for loss. The same example can forward
+encrypted datagrams without terminating their transport protocol.
 
-\subsection{Block I/O: ranges on a device}
+\subsection{Block I/O: serving and ingesting device ranges}
 \label{sec:named:block}
 
-A storage service binds an authorized raw-device descriptor to a window with read or
-read/write rights and limits on request size and depth. Offsets are relative to the
-window. A successful read publishes a handle for the entire requested range. A failed
-read publishes nothing. The service can send the completed object over TCP and retain
-it for later replies. Named access keeps the read buffers unmapped. A mapped read
-targets a compatible I/O area, letting the service inspect or change the result
-after the read completes. Either can pass the same object to another endpoint.
+Consider a storage service that serves repeated reads of the same extent. It
+binds an authorized raw-device descriptor to a window with explicit access rights
+and limits on request size and depth. An aligned read produces a handle only
+after the entire range has been read. The service can keep the handle and serve
+several TCP clients from the same pages. In named mode, it can serve the bytes
+without mapping them. A mapped implementation would direct the read into
+device-compatible pages in its dedicated area. After completion, the service
+could inspect or edit those pages before sending them.
 
-In the other direction, a block write reads the bytes of an object through its handle.
-The write path accepts a whole object that meets device alignment and layout rules.
-For example, the TCP ingest prototype copies received fragments into block-compatible
-buffers at capture before issuing a write from those buffers. That copy is part of
-ingest. A mapped writer can prepare data in a compatible area and must keep it stable
-through completion. The operation holds its source references even if the application
-releases the handle. In the newer prototype, a consuming write releases the handle
-after success. A completed device operation provides no durability guarantee, and a
-failed write can still have changed the destination.
+In the opposite direction, the service writes an incoming object at an offset
+relative to its device window. The write accepts a complete object whose
+length, alignment and layout the device supports. TCP fragments need not meet
+these requirements. One prototype compacts them after capture. Another copies
+them directly into suitable pages as they arrive, paying one payload copy on
+ingest. A mapped writer could prepare the bytes in a compatible area and keep
+them stable through device completion. In all cases, an admitted write holds
+its source until completion. The newer prototype can consume the handle on
+success. A completed write can leave data in a volatile device cache.
+Applications that require durability must also request the appropriate flush.
+A failed write may have changed part of the destination.

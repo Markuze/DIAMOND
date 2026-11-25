@@ -1,84 +1,87 @@
-% Mapped access generalizes to endpoint-compatible I/O pools; network details match the TCP prototype.
 \section{Mapped Mode: Segregated I/O Memory}
 \label{sec:mapped}
 
-Mapped mode gives a trusted process direct access to buffers in a dedicated I/O area.
-A store can lend the same handle and bounds as in named mode, plus offsets into the
-area. A network driver can fill eligible pages with TCP or UDP data. A block endpoint
-can fill or consume pages laid out for direct I/O. The area and its trust boundary
-depend on the endpoint.
+A service that transforms payload in place needs write access. In mapped
+mode the kernel sets aside an I/O area, maps it into a trusted process, and
+keeps its own control state elsewhere. A handle still names a complete
+object. The application can also ask which ranges of the mapping contain
+its bytes. This separation gives the application direct access to the data
+while the kernel retains control of I/O and buffer reclamation.
 
-\subsection{The memory boundary}
+\subsection{What the mapping exposes}
 \label{sec:mapped:segregation}
 
-The kernel allocates accounted, zeroed pages for the area. Socket and device state,
-I/O descriptors, buffer bookkeeping and object metadata remain in private memory.
-The kernel checks object bounds and endpoint arguments against that private state.
+The area contains kernel-allocated, zeroed pages that can serve as device
+buffers. The kernel keeps the structures that describe those pages private,
+including object bounds, socket state, and device request descriptors. For
+a mapped block read, for example, the device would fill pages in the area
+while the kernel kept the authorized device window and the list of target
+pages outside it.
 
-In a network area, packet headers can arrive in the same buffers as payload. The
-kernel uses private copies for parsing. The virtio-net integration copies protocol
-headers into private packet storage and snapshots device control fields, including the
-buffer count. Original header bytes can still be visible in the mapping. For block I/O
-the kernel similarly keeps the device window, request descriptors and scatter/gather
-layout private while the device accesses the data pages.
+Network input poses a further problem. A packet can arrive with protocol
+headers and payload in a single writable buffer. The driver copies an initial
+prefix into private memory. As parsing proceeds, the network stack brings any
+additional header bytes it needs into private storage. The driver also snapshots
+device control fields, including how many buffers hold a packet. A mapper can
+still see or change the original header bytes, but later writes cannot change
+the kernel's copy. This software separation works without hardware header
+splitting.
 
-\subsection{Setup and trust}
+\subsection{Who can map the area}
 \label{sec:mapped:trust}
 
-For networking, a process with \capnetadmin registers an instance on the device. The
-kernel reserves its locked-memory allowance and returns an offset for a read/write
-mapping. Driver and provider code must supply these pages to the receive queues and
-keep the kernel's parsing copies private. Software integration replaces the need
-for hardware header splitting and per-application queue steering.
+The driver must accept a kernel-provided source of receive buffers and install
+it on the device's queues. The virtio-net prototype supplies every receive
+queue from one area. It requires no per-application flow steering, and a
+process that maps the area can see or modify data from any flow on the
+device. That includes bytes retained by a named store if they share those
+pages. The kernel marks area pages so an ordinary socket cannot expose them
+through its read-only page-remapping interface.
 
-The mapping exposes the area as a whole. In the network prototype it supplies every
-receive queue of the device, so a mapper can see or change other flows' data,
-including bytes retained by an unbound store. Registration and instance import require
-\capnetadmin. Passing the registered ring descriptor can delegate access to the area.
-For a block area, trust covers the contents of that area, and an application still
-needs authority over the separate device window to issue a read or write.
+For this reason, registering or importing a network area requires network
+administration privilege (\capnetadmin). At registration the kernel charges the
+area against the locked-memory allowance and returns an offset for the mapping.
+A process can delegate mapping authority by passing its registered ring
+descriptor. A mapped block endpoint would likewise need a process trusted
+with all the data in its area, as well as separate authorization for device I/O.
 
-References keep memory alive. They do not freeze its contents. A mapper can finish
-edits before handing an object to a send or write, then keep it stable while that
-operation or its endpoint still uses the bytes. A request's completion grants reuse
-only when the endpoint has finished using the data. TCP can keep using a page after
-the send completion.
-
-\subsection{Raw buffers and retained objects}
+\subsection{Using a mapped object}
 \label{sec:mapped:objects}
 
-The network area supports both raw buffer leases and retained objects. A raw receiver
-gets offsets and lengths, then returns its receive references through the refill
-ring. A raw relay waits for the reuse notification after a zero-copy send before
-returning the corresponding receive lease.
-
-With a bound store, an application gets a handle and can query the offsets of a
-completed mapped object. The offsets are valid while the application keeps the object
-and are not independent references. The kernel returns receive references when the
-object and its outstanding users are done. Successful mapped capture puts the
+Binding a store to the network area lets an application capture an object
+and look up its offsets and lengths. Successful mapped capture places the
 entire object in the area. It retains eligible pages by reference and copies
-other readable network data into the area. The same store can also hold unmapped
-objects, for example from an ordinary \code{CREATE}.
+other readable input into area pages. An ordinary object created from
+application memory can remain unmapped even in a bound store.
 
-\subsection{When storage becomes reusable}
+For example, a relay can edit a fixed-width field at a returned offset and
+then send the object. The application must finish the edit before the send
+and preserve the bytes while TCP can still transmit them. A send completion
+reports how many bytes TCP accepted. TCP may still need them for
+retransmission. Dropping the handle ends the application's right to use
+those offsets for this object, even though the area itself stays mapped.
+
+\subsection{Returning buffers to the device}
 \label{sec:mapped:recycle}
 
-A page may be held by the area, by object segments and by I/O outside the store.
-Network receive pools track raw consumers and object references separately from
-ordinary page references. A page can return to the device when its reference count
-returns to the area's and mappings' baseline and all receive-pool users have released
-it. Dropping a handle alone cannot make it available for another packet.
+Returning a buffer too early would let the next packet overwrite data still
+in use. The area and its mappings hold long-lived references to each page.
+Before posting a page to the device again, the kernel checks that its ordinary
+reference count has fallen back to this baseline and that all users of the
+receive pool have dropped their references.
 
-After a handle is removed and admitted sends finish queueing, mapped network objects
-can move to a waiting list. A background reclaimer passes over objects whose pages
-are still busy. Once every page of an object has returned to its baseline reference
-count, the reclaimer releases the object's receive-pool references and metadata.
-The network page pool exchanges batches using a per-CPU pair with bottom halves
-disabled. The store uses separate task and soft-interrupt pairs
-(\S\ref{sec:lending:objects}).
+For a mapped object that has been sent, removing the handle and finishing
+send queueing leave a record of the object's pages. A background reclaimer
+scans these records. When all the pages of an object have reached their
+baseline, it releases the object's receive-pool references and metadata. It
+skips past busy pages, so a slow receiver cannot prevent reclamation of later
+objects. Pages awaiting reclamation consume space alongside pages posted to
+the device and objects still held by applications. The area can therefore run
+out even when the store has free entries.
 
-Block operations must similarly retain their buffers through completion and wait
-for outstanding consumers before recycling a page. A block read publishes a
-completed object before the application is entitled to use its offsets, even
-though the mapping itself persists. The area bounds the buffers available to
-endpoints independently of the store's object limit.
+The same network area also supports raw buffer leases. A raw relay must wait
+for each zero-copy send's buffer-reuse notification before returning its
+lease through the refill ring. With object handles, the kernel performs that
+bookkeeping. The same lifetime rule applies to block I/O, where recycling must wait
+for the device operation and for any subsequent consumer still holding the
+pages.

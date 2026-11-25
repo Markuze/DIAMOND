@@ -1,38 +1,43 @@
 \section{Discussion and Limitations}
 \label{sec:discussion}
 
-\paragraph{Representation and copies.} Reuse depends on whether a destination
-accepts the object's backing pages. A small slice can retain a whole receive
-buffer, and a fragmented object can hit the network transmit fragment limit.
-A device write can require a denser arrangement. Copying into compatible buffers
-costs CPU and memory bandwidth but can improve packing and let the next operation
-use those buffers directly. Hardware independence on the network path concerns
-header split and queue steering. Software driver support and device geometry
-still matter.
+\paragraph{When is a copy worth keeping?} A short range can keep an entire
+receive page resident. At the other extreme, a large object can span more
+fragments than a network transmit request accepts. A device write can require
+a denser layout still. Copying bytes into compatible pages once can release
+scarce receive buffers and make several later operations cheaper. The block
+ingest prototype illustrates this tradeoff: it copies at capture and writes
+from the resulting pages. The number of copies saved depends on where data
+arrives, how long it lives and what its next consumer accepts.
 
-\paragraph{Writable access.} Memory segregation protects kernel state. The
-mapper can access data throughout its area, so authorization to map a
-device-wide receive pool is wider than authority over a single socket.
-Applications must coordinate edits with all users, including a network send
-still holding pages or a block write still reading them. Handle checks and
-completion rules continue to apply to both modes.
+\paragraph{How far does hardware independence extend?} Checked handles
+require no special device feature. Writable network receive also works without
+hardware header splitting or per-application flow steering, provided the driver
+can supply the dedicated pages and preserve private control state. The
+virtio-net prototype shows one such integration. Another driver requires its
+own integration, and block devices retain their transfer and alignment
+constraints. A deployment that needs mutually distrustful applications to edit
+traffic on the same device would need a finer isolation boundary than the
+device-wide mapping described here. Named mode already supports directing I/O
+under ordinary endpoint permissions.
 
-\paragraph{Protocol and device semantics.} TCP supplies an ordered,
-flow-controlled stream. UDP preserves datagrams and allows loss. Block reads and
-writes have alignment and device-window restrictions, and durability needs a
-separate operation or contract. The object abstraction deliberately leaves
-these decisions to their endpoints. Capturing an encrypted UDP payload can
-support a pass-through relay. Terminating a secure transport requires its own
-protocol and cryptographic processing.
+\paragraph{Who may change a live buffer?} A page reference preserves storage,
+not its contents. A named handle gives its holder no way to overwrite the
+object. A mapper, however, must treat an edit as complete before a consumer
+starts and keep those bytes stable until the consumer is finished. A service
+that must change a value while an earlier version is in flight can create a
+new object. This obligation is distinct from recycling: the kernel still
+decides when it can give the pages to the device again.
 
 \section{Conclusion}
 \label{sec:conclusion}
 
-\emph{Lend, don't borrow} leaves ownership and reclamation of I/O buffers with the
-kernel. Applications can retain and forward data by handle without supplying pinned
-pages or tracking when the kernel can recycle them. Named objects give applications
-checked access to unmapped data. Mapped objects give trusted applications direct
-access to a dedicated I/O area while software keeps kernel control state and parsing
-copies private. TCP and UDP stay in the kernel, and block I/O connects storage and
-sockets using the same handles.
+A service can decide where I/O data goes without taking ownership of the
+memory that holds it. \sys gives an unprivileged service a checked handle to
+those bytes and a trusted service the option to edit them in a dedicated I/O
+area. Keeping control state private makes the second option possible in
+software. Keeping reclamation in the kernel lets an application release its
+handle while a socket or device still uses the pages. The same distinction
+between access and ownership applies to a stream forwarded once, a datagram
+routed by its contents and a block read once and served many times.
 \label{body:end}

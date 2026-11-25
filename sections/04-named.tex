@@ -1,21 +1,21 @@
-% Common named access. Endpoint-specific operations and examples appear in Section 7.
-\section{Named Mode: Objects Without a Mapping}
+\section{Named Mode: Access by Handle}
 \label{sec:named}
 
-Named mode gives applications read-only access to object contents through checked
-operations. An application can copy out a header to make a decision, then send the
-object's body through a socket or write it to a compatible block endpoint. Both output
-operations read the object. The application holds a handle throughout and never maps
-the backing pages.
+A service that forwards a message often needs to read only enough of it to
+choose a destination. Named mode lets an unprivileged application copy out
+those bytes and name the rest in a send. The same handle can be the source of
+a block write. In both cases the destination consumes data from the object
+and the object's contents remain read-only through this interface.
 
-\subsection{Interface}
+\subsection{Interface and authority}
 \label{sec:named:interface}
+\label{sec:named:safety}
 
-An application registers a store on an \iouring ring. The store limits object size,
-metadata and retained backing. It takes data from an endpoint and publishes a handle
-only for a complete object. A store can also make an object by copying application
-bytes. Once published, an object can outlive its input socket or the block endpoint
-used to create it.
+The application registers a store on an \iouring ring. It can ask the kernel
+to retain incoming bytes, read a block range into an object, or construct an
+object from data it supplies. Each operation publishes a handle only when the
+whole object is ready. A socket closing or a device read completing does not
+invalidate that handle.
 
 \begin{center}
 \footnotesize
@@ -26,53 +26,50 @@ used to create it.
 \toprule
 Operation & Effect \\
 \midrule
-Capture or read & Publish an object from a complete stream range, datagram or block read. \\
-\code{READ\_OBJECT} & Copy a checked range of a completed object. \\
+Capture or read & Retain a stream range, a complete datagram, or the result of a block read. \\
+\code{READ\_OBJECT} & Copy a selected range to the application. \\
 \code{CREATE} & Copy application bytes into a new object. \\
-Send or write & Use the object as input to an authorized endpoint. \\
-\code{FREE} & Remove the handle. Admitted operations keep their references. \\
+Send or write & Submit the object to an authorized endpoint. \\
+\code{FREE} & Remove the handle while admitted operations keep their references. \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Keeping a handle lets an application use it again where the output operation supports
-reuse. TCP, for example, can send selected ranges concurrently to different
-destinations. A consuming operation trades future lookups for automatic release.
-Section~\ref{sec:apps} shows how each endpoint defines its unit of work and when
-a consuming operation takes the handle.
+There are two permission checks. To use the \emph{object}, the caller must
+have access to its store. The kernel verifies the handle's generation to
+reject a stale name and checks the requested range against the recorded
+length. To use an \emph{endpoint}, the caller must separately hold authority
+over the socket or the configured window of a block device. Importing a store
+shares its objects and capacity without granting permission to another
+endpoint. Ordinary socket capture needs neither a device registration nor a
+modified driver.
 
 \subsection{Backing pages and memory limits}
 \label{sec:named:memory}
 
-Capture retains eligible readable fragments by reference or takes ownership of their
-references from the receive queue. Payload that cannot be held safely is copied into
-store-owned buffers. Unreadable fragments are refused. Block reads use store-owned
-buffers whose layout meets the device's requirements. The resulting handle offers the
-same checked byte access in all cases.
+Where possible, network capture retains the pages that already hold the
+payload. It copies readable fragments into store-owned buffers when sharing
+the original pages would be unsafe, and rejects unreadable input. For a block
+read the kernel supplies buffers with a layout the device accepts. The
+application sees the same checked range in each case.
 
-A short range can retain an entire buffer, leaving unused space we call \emph{slack}.
-Each segment holds at most one backing buffer. If two objects share a buffer, each has
-its own segment. The head array separately limits pending and complete objects.
-The configured byte limit sets the base segment count by dividing it by the page size.
-Each pool provisions four additional batch capacities per possible CPU to cover free
-stock in the task and soft-interrupt caches. The physical arrays bound retention,
-which can exceed the base count by at most that extra stock.
+The cost of retaining a range depends on how its bytes are laid out. A small
+tail of one packet can keep its entire backing buffer resident. Two objects
+that end and begin on the same page each consume a segment, even though only
+one page of data is resident. A store therefore bounds retained buffer
+references separately from object count. The former depends on the segment
+array and the latter on the head array.
 
-Registration reserves capacity and charges the arrays to the registering memory
-control group. Owned buffers have a separate pool and reservation. Taking an entry
-does not add a per-operation charge. If neither the local pair nor the shared pool
-has an entry, the design fails the request immediately. TCP can leave unread data in
-the socket, UDP may drop datagrams, and a block read can fail before publishing a
-handle. The application chooses what to release before trying again. Rings, endpoint
-queues and pages held by outstanding I/O have their own costs.
+The configured byte limit divided by the page size supplies the base segment
+count. The store also provisions four batches per possible CPU in each pool
+for locally cached entries (\S\ref{sec:impl}). These entries bound how far
+the store can exceed its base count. Registration reserves capacity and
+charges the registering memory control group. Buffers owned by the store
+have a separate reservation. A send can still hold pages under socket
+accounting after the store has released its references.
 
-\subsection{Authority and bounds}
-\label{sec:named:safety}
-
-The kernel checks the handle's store, generation and byte bounds. A stale handle
-cannot name a new object in a recycled slot. Importing a store shares its objects and
-capacity. It does not transfer a separate socket or block endpoint's authority.
-Endpoint operations still need permission to use the endpoint and a layout it accepts.
-Ordinary named socket access needs no administrative privilege. A block endpoint must
-be bound from an authorized device descriptor and restricts I/O to its configured
-window.
+When no suitable entry is available, a new allocation fails immediately.
+Unread TCP data stays in the socket and slows the sender through flow
+control. UDP can lose datagrams under pressure, and a block read can fail
+without publishing a handle. The application can release retained objects
+and retry operations whose endpoint permits it.

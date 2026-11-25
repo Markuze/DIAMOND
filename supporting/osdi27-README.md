@@ -11,17 +11,18 @@ One file per section under `sections/`. `main.tex` assembles the current manuscr
   references extra; 10-point type on 12-point leading; double-blind.
 - **Build.** `make` (latexmk). `make clean`. `make pages` prints the page on which the body ends
   (the limit is 12) and the total with the references and the draft notes.
-- **Figures and result slots** (2026-11-16). At the owner's request, receive, send and forwarding
-  now have explicit figure placeholders while Alex updates qualified results. Section 8 keeps
-  the workloads and comparison rules, with quantitative slots rather than superseded CPU
-  percentages. The old compact CSVs remain as historical material and are not plotted. Future
+- **Figures and result slots.** The TCP figure has panels for capture, send and forwarding.
+  UDP has a figure for datagram delivery and loss. Block I/O has a figure for read-and-serve
+  and receive-and-write. Each awaits final-build results. Section 8 identifies the earlier
+  TCP prototype and baselines for the numbers it quotes. The old compact CSVs are historical.
+  Future
   data generation must use `python3 apps/fwdbase/make_figure_data.py paper/osdi27/figures/mkdata.py`
   from the repository root, as CLAIMS requires; `make data` delegates to that wrapper. The guard
   requires Linux and CPython 3.14. Restore plots only with campaign-specific data, provenance
   and matching CLAIMS updates; provisional fixed-object tables are not qualified results.
 - **The evaluation's two forms.** `sections/08-evaluation.tex` is the one `main.tex` builds:
-  workloads, evidence boundaries and result placeholders for receive, send, forwarding,
-  request/response and capacity. Historical observations remain explicitly qualified.
+  it covers TCP, UDP, both storage transfer directions, request/response and store capacity.
+  The three TCP panel files sit under `figures/`. The UDP and storage figure slots are inline.
   The revised-build plan is `../../eval/2026-11-11-fixed-objects/EVAL.md`; its provisional TX/RX
   tables do not supply final-design results. `figures/rrkv.tex` is not included in the build.
   `sections/08-evaluation-long.tex` is the long form replaced on 2026-11-10, kept unbuilt as the
@@ -29,9 +30,9 @@ One file per section under `sections/`. `main.tex` assembles the current manuscr
 - **Design and examples.** DIAMOND has two access modes for retained kernel I/O objects.
   Named mode lends checked access by handle. Mapped mode also lends writable access to
   an eligible I/O area, with control state and network parsing copies kept private.
-  Sections 3–5 describe the shared lifetimes, IRQ-aware recycling and access rules.
-  Section 7 uses TCP streams, UDP datagrams and block I/O to illustrate both modes.
-  Section 6 describes the combinations exercised by the Linux prototypes.
+  Sections 3–5 describe the shared lifetimes, memory limits and access rules.
+  Section 6 describes interrupt-aware recycling and the combinations exercised by the
+  Linux prototypes. Section 7 illustrates both modes across TCP, UDP and block I/O.
 - **Endpoint sources.** The TCP design follows
   [the design specification](../../docs/design_spec.md). The datagram example draws on
   [the UDP relay notes](../../apps/fwdbase/README-UDP.md) and the vendored UDP interface.

@@ -1,42 +1,58 @@
-% Sources: docs/design_spec.md, docs/status-and-lineage.md, apps/uapi/ADDONS.md,
-% apps/fwdbase/README-UDP.md and apps/blockbench/README.md and candidate ABI.
+% Sources: docs/design_spec.md, apps/fwdbase/README-UDP.md, apps/blockbench/README.md.
+% Allocator lineage: eval/2026-11-21-opaque-loop/LEDGER.md, L8.
+% Block pilots: eval/2026-11-22-opaque-block-pilot{2,3}. Assistance: original kernel cover letter.
 \section{Implementation}
 \label{sec:impl}
 
-The Linux prototypes integrate the object model with \iouring. The store provides
-handle checks, object retention, reads and release. Endpoint code handles the parts
-that depend on sockets or block devices. The access mode selects how the
-application sees the bytes.
+The Linux prototypes put handle lookup, retention and release in an \iouring
+object store. Each endpoint supplies the code that turns incoming bytes into an
+object or submits its pages for output. TCP exercises both access modes. The UDP
+and raw block-device prototypes use the named interface at different stages of
+development.
 
-\paragraph{Network integration.} TCP attaches an exclusive receive claim and uses
-\code{tcp\_read\_sock} to obtain data. Object sends pass page ranges to the existing
-splice path. An independent networking series reduces splitting of eligible
-large-page ranges for \splice, \sendfile and object sends. The mapped TCP path extends
-the virtio-net receive provider with a kernel-owned area and private copies of the
-headers and control fields that the kernel relies on. Object sends and raw mapped
-relays use different rules for returning receive references.
+\paragraph{Sockets.} The TCP collector claims exclusive access to a socket's
+receive stream and obtains its bytes through \code{tcp\_read\_sock}. Sending an
+object passes its page ranges to the existing socket splice path. A separate
+networking change keeps eligible ranges from large pages together on this path,
+which also serves \splice and \sendfile. For mapped receive, we modified the
+virtio-net driver to draw buffers from the dedicated area and snapshot device
+control fields. The driver and stack together keep the headers used for parsing
+in private memory (\S\ref{sec:mapped:segregation}). Tests on virtio-net verified
+payload delivery through both modes and exercised release of mapped receive
+references.
 
-\paragraph{Datagram and block prototypes.} The IPv4 UDP relay has named and copying
-backends. The named backend targets a UDP development kernel interface with its own
-receive and whole-datagram send operations. The block prototype binds a raw-device
-window and uses the ordinary object handle returned by a read in a TCP send. Its
-write path accepts a complete device-compatible object. One version compacts the
-received TCP object before writing, while the dense-capture path fills compatible
-buffers directly with one copy.
+The IPv4 UDP relay has a copying backend and a named backend that targets a
+development kernel interface for receiving and sending whole datagrams. The
+copying path has run on loopback. The named relay's tests simulate kernel
+completions. Its native end-to-end check and the integration of UDP capture with
+the mapped receive area remain open.
 
-These examples separate endpoint semantics from access mode. The TCP prototype
-exercises both modes. The named UDP relay and raw-block benchmark exercise their
-endpoint operations with unmapped objects. Their mapped counterparts require
-eligible mapped backing as described in \S\ref{sec:mapped}.
+\paragraph{Block devices.} A separate prototype implements object reads and writes
+within a bounded region of a raw device. Device pilots exercised both serving data
+over TCP and writing received data back to the device, with payload verification
+on reads and readback on writes. These tests used named objects. Mapped block I/O
+requires buffers from a dedicated area that the device can use for direct I/O
+(\S\ref{sec:named:block}).
 
-\paragraph{Resource management.} The shared design uses fixed pools and CPU-local
-recycling. The prepared named series, the mapped network integration and the
-endpoint prototypes are separate development lineages. In particular, the
-fixed-pool kernels used per-registration caches before the task and soft-interrupt
-design. Preallocated object metadata does not eliminate ordinary socket, block,
-or driver allocations. Functional checks cover the standalone named series,
-the lifetime of mapped receive references, and the prototype device read and
-write paths.
+\paragraph{Recycling on each CPU.} Object entries often become free on a different
+CPU from the one that took them. The store keeps small batches of free entries,
+or \emph{magazines}~\cite{magazines}, on each CPU. A task briefly disables
+preemption to use its pair of magazines. A software interrupt on the same CPU
+uses a separate pair, so local allocations and returns need neither a lock nor
+interrupt masking. Hardware interrupt handlers, including non-maskable interrupts,
+cannot allocate entries and defer returns.
+The shared pool takes a lock when exchanging batches or supplying the last few
+entries. The network receive-page pool uses one pair per CPU and briefly disables
+software interrupts while accessing it.
 
-\todod{add the paper's coding-assistance disclosure, consistent with the patchsets and
-submission requirements}
+Early fixed-pool builds kept free entries per registration. A later kernel build
+includes the separate task and interrupt caches. The earlier TCP comparisons in
+\S\ref{sec:eval} therefore cannot quantify this allocator's effect. Preallocation
+covers object metadata. Sockets, block requests and drivers can still allocate
+memory.
+
+\paragraph{Development tools.} OpenAI Codex, GPT-6.1 through OpenCode, GLM and
+Anthropic Claude assisted with code, tests, patch descriptions and review for the
+named kernel series.
+\todod{Confirm the scope of the authors' disclosure for the other components and
+manuscript.}

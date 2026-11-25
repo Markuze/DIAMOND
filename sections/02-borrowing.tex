@@ -3,9 +3,10 @@
 \section{What Zero-Copy Interfaces Require}
 \label{sec:borrowing}
 
-Copy avoidance depends on who can access the data, how long the buffer must live, and
-which layouts a destination accepts. Table~\ref{tab:space} summarizes these tradeoffs
-for representative interfaces.
+Two kinds of reuse arise in the storage server from \S\ref{sec:intro}. The
+server wants to send the \emph{same data} to another client. Eventually, the
+device needs the \emph{same memory} for new data. Existing interfaces give
+different parties control over those decisions (Table~\ref{tab:space}).
 
 \begin{table*}[t]
 \centering
@@ -23,11 +24,11 @@ Mechanism & Access and reuse & Setup requirements & Remaining costs or limits \\
 \msgzc, default \sendzc~\cite{msgzerocopy,sendzcdoc}
   & Application buffers; repeated sends
   & Socket or \iouring send API
-  & Pin per send; preserve bytes until reuse notification \\
+  & Zero-copy path pins pages per send. Preserve bytes until notified \\
 registered \sendzc~\cite{sendzcdoc}
   & Registered buffers; repeated sends
-  & Register and pin a buffer pool
-  & Pinning is amortized; reuse notifications remain \\
+  & Register an application buffer pool
+  & Pages stay pinned across sends. Reuse notifications remain \\
 hardware \recvzc~\cite{zcrx,zcrxreg}
   & Writable payload area; retained receive slots
   & Header split, flow steering, queues; administrative registration
@@ -44,10 +45,14 @@ TCP page remapping~\cite{tcpmmap}
   & Unmapped pipe data; \code{tee} duplicates references
   & Linux pipe APIs
   & Bounded FIFO pipes, not independently named ranges \\
+direct I/O + registered \sendzc~\cite{openapi,sendzcdoc}
+  & One application pool for device reads and socket sends
+  & Direct-I/O layout and pinned, registered buffers
+  & Refill only after the device and socket release the bytes \\
 file + \sendfile~\cite{sendfileapi}
   & File offsets; repeated range sends
   & Linux file API
-  & Source named by a file descriptor and offset \\
+  & Requires a suitable input file and output descriptor \\
 sockmap~\cite{sockmap}
   & Socket streams redirected by BPF
   & Load a BPF program and attach sockets
@@ -74,13 +79,13 @@ MAIO~\cite{maio}
   & Buffer slack, copy fallback and device alignment \\
 \textbf{Mapped mode}
   & Read-write I/O area; raw buffers or object handles
-  & Kernel/driver/application changes; administrative privilege
-  & Device-wide trust; coordinated writes; bounded receive pool \\
+  & Eligible I/O area. Network receive needs driver integration and admin setup
+  & Trust covers the area. Coordinate edits with outstanding I/O \\
 \bottomrule
 \end{tabular}
-\caption{Representative interfaces for kernel I/O. Reuse can refer to sending the same
-data again or making its memory available for new data. Copies may still occur on fallback
-paths.}
+\caption{How representative I/O interfaces grant access to data and make buffers available
+for reuse. The \sys rows describe the design. Section~\ref{sec:impl} identifies the
+implemented paths. Copy fallback is possible even on a zero-copy interface.}
 \label{tab:space}
 \end{table*}
 
@@ -88,30 +93,31 @@ paths.}
 \label{sec:borrowing:services}
 \label{sec:borrowing:gap}
 
-Hardware \recvzc keeps parsed headers private and directs flows into separate receive
-pools~\cite{zcrx}. MAIO similarly uses header split, with per-process queues or privileged
-sharing~\cite{maio}. The latter accepts access to other flows rather than isolating them.
+The unit of protection matters when a buffer contains more than the application
+is entitled to see. Hardware-assisted \recvzc steers traffic to designated
+queues and delivers payload separately from headers~\cite{zcrx}. Linux can also
+map eligible TCP payload pages read-only after receive, but only when their
+layout permits it~\cite{tcpmmap}. A handle offers a third choice: the kernel can
+check an operation against a byte range even when that range shares a page
+with unrelated data.
 
-IO-Lite chooses access rights in software before receive placement; PASTE retains mapped
-data and needs a dedicated port or DMA partitioning for isolated applications~\cite{iolite,paste}.
-Page remapping exposes eligible pages after receive, with alignment restrictions~\cite{tcpmmap}.
-Retention and isolation do not inherently require specialized NIC features.
-
-Pipes and files also support reuse. \code{tee} duplicates pipe references, and \sendfile
-accepts file ranges~\cite{spliceapi,sendfileapi}. A registered buffer can serve both direct
-I/O and a network send. Whoever manages it must wait for both operations to finish using
-the pages before refilling it. A direct block request also constrains the alignment and
-layout of those pages.
+The unit of retention matters when data must outlive a request. A file offset
+already lets a server send a range again, and \code{tee} can duplicate references
+in a pipe~\cite{sendfileapi,spliceapi}. A registered buffer can serve both a
+direct read and a network send. In that case the application manages when the
+buffer can be filled again. The read also constrains the alignment and layout
+of the pages~\cite{openapi}.
 
 \subsection{Costs depend on the interface}
 \label{sec:borrowing:costs}
 
 \paragraph{Resident memory.} The kernel must keep shared pages resident while it uses them.
-Default \sendzc and \msgzc pin application pages for each send; registering buffers moves
-that work to registration~\cite{msgzerocopy,sendzcdoc}. Kernel-owned buffers avoid pinning
-application pages, but still consume resident memory and need limits on retention.
+On their zero-copy path, default \sendzc and \msgzc pin application pages per
+send. Registering a pool amortizes that work~\cite{msgzerocopy,sendzcdoc}.
+Lending kernel-owned buffers avoids the application-page pin. The retained
+pages still occupy memory, including any unused bytes on the same page.
 
 \paragraph{Safe reuse.} An application must not modify bytes that a send still uses. A reuse
-notification tells it when modification is safe; this need not stall every send, and
-notifications can be batched~\cite{msgzerocopy,sendzcdoc}. On receive, returning buffers makes
+notification tells it when modification is safe. Several sends can run concurrently,
+and notifications can be batched~\cite{msgzerocopy,sendzcdoc}. On receive, returning buffers makes
 room for later packets. Holding buffers is allowed, but reduces the free pool.

@@ -1,51 +1,69 @@
 \section{Introduction}
 \label{sec:intro}
 
-I/O data passes through the kernel on its way between an application and a device.
-A proxy may forward that data unchanged, yet ordinary socket I/O copies it into
-application memory and back, using CPU time and memory bandwidth~\cite{cai21,libra}.
-Zero-copy sends can avoid the second copy by borrowing application pages. The kernel
-uses pinned pages and tells the application when they may be reused~\cite{msgzerocopy,sendzcdoc}.
-The loan can outlast device completion because TCP may keep the bytes for retransmission.
+Consider a storage server that reads a block once and sends it to several
+clients. The data is already in memory after the read. The server needs to
+choose the recipients and the byte range each should receive. Neither decision
+requires a private copy of the block. Yet the kernel must be able to finish one
+client's send after the server has dropped the block from its index. A similar
+problem arises in a relay that receives a message on one socket and forwards it
+on another. In both cases the application decides what to do with the data, while
+the kernel knows when the last I/O operation has finished using it.
 
-Lending receive buffers to an application raises a protection problem. An application
-can change any byte in a writable mapping, including packet headers that arrive in
-the buffers. Some zero-copy receive interfaces use hardware to place headers in
-separate memory and steer flows to application-specific queues~\cite{zcrx,maio}.
-We show how software can isolate kernel control state while letting a trusted
-application edit I/O data on commodity network devices.
+Ordinary I/O keeps these responsibilities separate by copying data across the
+application boundary, at a cost in CPU time and memory bandwidth~\cite{cai21,libra}.
+Zero-copy sends can avoid a copy by borrowing application pages. The kernel pins
+the pages and tells the application when it can overwrite them~\cite{msgzerocopy,sendzcdoc}.
+Giving an application direct access to receive buffers raises a different
+question: what else can it see or change? On a network device, the same buffer
+can carry both payload and the headers the kernel parses. Some receive interfaces
+rely on the device to split off those headers and steer an application's flows to
+dedicated queues~\cite{zcrx,maio}.
 
-\sys follows the principle \emph{lend, don't borrow}. The kernel owns the pages and
-gives the application a handle naming the data. The application decides which bytes to
-keep and where to send them. Linux continues to process TCP and UDP, and an object can
-outlive the socket or device operation that produced it. The application can release
-its handle while outstanding I/O holds references to the pages. The kernel reclaims
-the pages when those references are gone. The application still receives I/O results,
-and the kernel handles reclamation without a separate buffer-reuse notification.
+\sys follows the principle \emph{lend, don't borrow}. The kernel owns the buffers
+throughout and lends access to the data they hold. It presents a completed range
+as an \emph{object}. The application can name the object in a later I/O request,
+even after the socket or device operation that produced it is gone. A request
+that has acquired its references can finish after the application gives up the
+name. The kernel can therefore reclaim the pages without asking the application
+to track their last use. The choice of how to lend access turns on what the
+application is authorized to do.
 
-\paragraph{Named mode.} Applications use handles to read selected bytes, retain objects
-and direct later I/O. The kernel checks each operation and leaves the underlying pages
-unmapped. Socket capture can use ordinary receive buffers and existing drivers.
-Authority to access a socket or block device is separate from authority to use an object.
+\paragraph{Named mode.} An unprivileged application receives a handle to the
+object. It can copy out a small field, send a range to a socket, or write the
+object to an authorized block device. Each operation checks the handle and its
+bounds. The pages stay unmapped, so the application can direct the movement of a
+large object without gaining write access to its contents. A relay that forwards
+a body unchanged needs no more authority than this.
 
-\paragraph{Mapped mode.} Trusted applications can read and edit buffers in a dedicated
-I/O area. Kernel control structures and the header copies used for parsing stay in
-private memory. The network driver supplies receive buffers from that area. Both modes
-work without hardware header splitting or per-application flow steering. A mapper must be
-trusted with the entire area, which can include all traffic on a device. It must keep
-bytes stable while outstanding I/O uses them.
+\paragraph{Mapped mode.} A trusted application can also read and edit data in
+place. The kernel sets aside a writable I/O area and keeps its own control
+structures outside it. On network receive, the driver supplies pages from this
+area and the kernel parses private copies of packet headers. This segregation
+works in software, including on devices without header splitting or
+per-application flow steering. The mapping grants access to the entire area,
+which can carry other flows on the device. A mapper must have authority over
+that data and keep bytes stable while an outstanding operation uses them.
 
-TCP, UDP and block I/O illustrate how the same two access modes apply to different
-endpoints. A TCP relay can retain a range after a connection closes. A UDP relay handles
-one datagram at a time. A storage server can read an aligned range into an object
-and send it in several replies. The same model also supports writes to compatible
-devices, so a network service can use it in both directions. In each case, the
-choice between named and mapped access determines how the application touches the
-bytes. The endpoint determines the operation's boundaries, permissions and completion.
+The contribution is a common object interface for these two levels of trust.
+IO-Lite established the value of immutable shared buffers, PASTE lets an
+application retain received buffers, and MAIO separates writable I/O memory
+from kernel state~\cite{iolite,paste,maio}. \sys can publish an object after the
+kernel has processed the input and knows which endpoint received it. A store can
+lend a checked handle alone or, for data in a dedicated area, a handle and writable offsets.
+The same lifetime rules apply across both modes. TCP streams, UDP datagrams and
+block I/O illustrate the design: each retains its own boundaries, permissions and
+completion rules.
 
-IO-Lite and PASTE establish the value of sharing retained I/O data, and MAIO establishes
-segregated writable I/O memory~\cite{iolite,paste,maio}. \sys combines checked operations
-on unmapped objects with writable objects backed by an area segregated in software.
-Both forms share the same retention and reuse model. We describe that model and its
-Linux realization (\S\ref{sec:lending}--\ref{sec:impl}), then show how applications can
-use it across stream, datagram and block I/O (\S\ref{sec:apps}).
+Our Linux prototypes expose these operations through \iouring.
+Section~\ref{sec:impl} describes the paths implemented for each endpoint.
+Section~\ref{sec:eval} examines the cost of retaining, editing and delivering data,
+including the cases where copying or using registered application buffers is
+competitive. On an earlier TCP prototype, named sends used 15--27\% less sending-host
+CPU per delivered byte than sends that pinned pages per operation, for objects
+from 4\KiB to 1\MiB at full speed. In a separate test at 1\GBs, a relay using
+mapped objects spent 15\% less CPU per delivered byte than a relay using
+\splice. The datagram and storage experiments ask how far these savings extend.
+\todom{Replace the earlier-prototype example with representative final TCP, UDP
+and block I/O results, each with its baseline and useful-byte denominator.
+Check the abstract's cross-path claim against registered buffers and small objects.}
