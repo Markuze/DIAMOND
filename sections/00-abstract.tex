@@ -1,24 +1,24 @@
-The kernel cannot assume application memory will stay resident and unchanged during
-I/O. A send can copy data into kernel memory or borrow pinned pages and signal when
-the application may reuse them. Lending receive buffers can expose packet headers
-and unrelated traffic. Some receive interfaces rely on hardware to split headers
-from payload and steer traffic into application-specific queues.
+Application-owned memory offers the kernel no guarantee of residency or content
+stability during I/O. Conventional transmit copies payload into kernel-owned
+buffers. Zero-copy transmit borrows and pins application pages, which must remain
+unchanged until the kernel signals that they may be reused. On receive, exposing
+device buffers poses the inverse protection problem. Hardware-assisted receive
+paths use header splitting and per-application flow steering to keep protocol
+headers and unrelated traffic outside the mapping.
 
-We present \sys, a Linux design that reverses the loan. The kernel lends access to its own
-buffers and uses software to separate writable I/O memory from kernel control state.
-In \emph{named mode}, unprivileged applications retain unmapped data by handle and the
-kernel checks each operation. In \emph{mapped mode},
-applications read and edit buffers in a dedicated I/O area. A device-wide receive area
-requires administrative authorization because it exposes the device's traffic.
-The driver supplies receive buffers from this area, and the kernel parses private
-copies of packet headers. Neither mode requires hardware header splitting or
-per-application flow steering.
+We present \sys, a Linux I/O architecture that reverses the loan by separating
+payload access from page ownership. In \emph{named mode}, unprivileged applications
+retain kernel-owned objects through checked handles, with the backing pages unmapped.
+In \emph{mapped mode}, trusted applications receive read/write access to a dedicated
+I/O region. Software segregates that region from kernel control state and the private
+copies of packet headers used for parsing. A device-wide receive mapping requires
+administrative authorization. Mapped receive requires driver integration in software,
+and both modes work without hardware header splitting or per-application flow steering.
 
-Both modes use the same object interface in \iouring for TCP, UDP, and block I/O.
-A relay can pass a handle from receive to send without copying the
-payload or pinning application pages. The kernel tracks the last use of each page,
-so the relay can release the handle without waiting for a separate buffer-reuse
-notification.
+Both modes share an \iouring object interface for TCP, UDP, and block I/O. The kernel
+manages page reclamation independently of handle lifetime, so a relay can release an
+object while the protocol stack still references its pages. This enables zero-copy
+forwarding without application-page pinning or a separate buffer-reuse notification.
 
 In full-speed tests of an earlier TCP prototype, object sends used 15--27\% less CPU
 time per delivered byte than zero-copy sends that pinned application pages per send,
