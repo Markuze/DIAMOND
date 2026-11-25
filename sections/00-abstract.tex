@@ -1,20 +1,21 @@
-The kernel may still need the payload after a send returns. Copying it into
-kernel-owned memory gives the stack control of the buffer's lifetime. A zero-copy
-send can borrow the application's pages. The kernel pins those pages and signals
-when the application may overwrite them.
+Sharing I/O buffers crosses a trust boundary between the kernel and applications.
+The kernel can copy data into memory it controls. When it borrows an application
+buffer, it relies on the application to preserve the data until the kernel is done
+with it.
 
-On receive, the kernel can lend access to buffers the device has filled. A writable
-mapping can expose protocol headers and unrelated traffic alongside the application's
-payload. Some receive interfaces rely on the network device to isolate that payload.
+When the kernel lends a buffer, it must give the application access to payload
+while protecting kernel state and traffic outside the application's authority.
+Some receive interfaces rely on the network device to enforce that separation.
 
 We present \sys, a Linux I/O architecture that reverses the loan by separating
 payload access from page ownership. In \emph{named mode}, unprivileged applications
 retain kernel-owned objects through checked handles, with the backing pages unmapped.
 In \emph{mapped mode}, trusted applications receive read/write access to a dedicated
 I/O region. Software segregates that region from kernel control state and the private
-copies of packet headers used for parsing. A device-wide receive mapping requires
-administrative authorization. Mapped receive requires driver integration in software,
-and both modes work without hardware header splitting or per-application flow steering.
+copies of packet headers used for parsing. A device-wide receive mapping exposes the
+device's traffic and requires administrative authorization. Mapped receive requires
+software driver integration, and both modes work without hardware header splitting
+or per-application flow steering.
 
 We illustrate \sys with TCP streams, UDP datagrams, and block I/O, achieving a consistent reduction in CPU time per delivered byte compared to alternatives.
 % CLAIMS S1, full-speed matched comparison. The copying comparison (S6) is unmatched.
