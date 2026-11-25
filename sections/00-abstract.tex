@@ -1,22 +1,5 @@
-Letting applications reuse I/O data already in kernel memory requires the kernel
-to retain control over buffer lifetimes and protect its own state. Copying keeps
-kernel and application buffers separate at a cost in CPU time and memory bandwidth.
-Linux zero-copy sends can avoid a copy by borrowing application buffers, which
-the sender must leave unchanged until the kernel signals that they can be reused.
-Some existing receive interfaces require specialized network hardware to give
-applications direct access to payload while keeping protocol headers and unrelated
-traffic outside their buffers.
+Moving I/O data between the kernel and applications consumes CPU time and memory bandwidth, even when the data is already in memory and could be reused in place. Eliminating these copies, however, requires preserving the kernel’s control over buffer lifetimes, protecting its internal state, and enforcing application access rights. Existing zero-copy interfaces address these requirements through mechanisms specific to I/O paths, imposing buffer-management obligations on applications or relying on specialized hardware. What is missing is a unified mechanism for reusing kernel-resident I/O data across I/O paths and application trust levels.
 
-We present \sys, a Linux I/O architecture that reverses the loan. The kernel
-retains ownership of I/O buffers and lends access according to the application's
-authority. \emph{Named mode} gives unprivileged applications checked handles to
-retained objects whose backing pages remain unmapped. \emph{Mapped mode} gives
-trusted applications read/write access to a dedicated I/O region. For mapped
-receive, the driver supplies buffers from that region, and the kernel keeps
-control state and the header copies used for parsing outside the mapping.
-A device-wide mapping requires administrative authorization because it exposes
-the device's traffic. Neither mode requires hardware header splitting or
-per-application flow steering.
+We present DIOMND, a Linux I/O architecture that makes kernel-owned buffers the basis for zero-copy I/O. DIOMND reverses the direction of buffer lending: rather than having the kernel borrow buffers from applications, it retains ownership in the kernel and lends access according to application authority. By separating buffer ownership from data access, DIOMND accommodates different protection requirements within a common architecture. Named mode gives unprivileged applications checked handles to retained I/O objects without mapping their backing pages, while mapped mode gives trusted applications direct read/write access to a dedicated I/O region. Neither mode requires hardware header splitting or per-application flow steering.
 
-We illustrate \sys with TCP streams, UDP datagrams, and block I/O, achieving a consistent reduction in CPU time per delivered byte compared to alternatives.
-% CLAIMS S1, full-speed matched comparison. The copying comparison (S6) is unmatched.
+We demonstrate DIOMND's generality across TCP streams, UDP datagrams, and block I/O, consistently reducing CPU time per delivered byte compared to alternatives.
