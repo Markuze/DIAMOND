@@ -1,17 +1,17 @@
-Mapping a receive buffer can expose the headers that drive kernel protocol processing
-alongside the payload an application wants to edit. Some receive interfaces
-rely on network hardware to separate headers from payload and steer flows into
-application-specific queues. On transmit, the kernel can avoid a copy by borrowing
-pinned application pages. The application must keep those pages unchanged until the
-kernel signals that they can be reused.
+The kernel cannot assume application memory will stay resident and unchanged during
+I/O. A send can copy data into kernel memory or borrow pinned pages and signal when
+the application may reuse them. Lending receive buffers can expose packet headers
+and unrelated traffic. Some receive interfaces rely on hardware to split headers
+from payload and steer traffic into application-specific queues.
 
-We present \sys, a Linux design that reverses the loan. The kernel owns the buffers
-and lends access in two ways. In \emph{named mode}, unprivileged applications retain
-unmapped data by handle and the kernel checks each operation. In \emph{mapped mode},
+We present \sys, a Linux design that reverses the loan. The kernel lends access to its own
+buffers and uses software to separate writable I/O memory from kernel control state.
+In \emph{named mode}, unprivileged applications retain unmapped data by handle and the
+kernel checks each operation. In \emph{mapped mode},
 applications read and edit buffers in a dedicated I/O area. A device-wide receive area
 requires administrative authorization because it exposes the device's traffic.
-The driver supplies receive buffers from this area. The kernel keeps control state
-and the header copies it parses private, without hardware header splitting or
+The driver supplies receive buffers from this area, and the kernel parses private
+copies of packet headers. Neither mode requires hardware header splitting or
 per-application flow steering.
 
 Both modes use the same object interface in \iouring for TCP, UDP, and block I/O.
