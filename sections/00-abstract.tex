@@ -1,10 +1,13 @@
-Application-owned memory offers the kernel no guarantee of residency or content
-stability during I/O. Conventional transmit copies payload into kernel-owned
-buffers. Zero-copy transmit borrows and pins application pages, which must remain
-unchanged until the kernel signals that they may be reused. On receive, exposing
-device buffers poses the inverse protection problem. Hardware-assisted receive
-paths use header splitting and per-application flow steering to keep protocol
-headers and unrelated traffic outside the mapping.
+The kernel cannot assume the residency or content stability of application-owned
+memory during I/O. Conventional sends copy the payload into kernel-owned buffers.
+A zero-copy send can borrow application pages and pin them to keep them resident.
+The application must preserve their contents until the kernel signals that the
+pages may be reused.
+
+On receive, lending device buffers raises a different protection problem. A writable
+mapping can expose the packet headers the kernel uses for protocol processing. A
+shared receive pool can also expose unrelated traffic. Hardware-assisted receive
+paths split headers from payload and steer flows into application-specific queues.
 
 We present \sys, a Linux I/O architecture that reverses the loan by separating
 payload access from page ownership. In \emph{named mode}, unprivileged applications
@@ -15,12 +18,8 @@ copies of packet headers used for parsing. A device-wide receive mapping require
 administrative authorization. Mapped receive requires driver integration in software,
 and both modes work without hardware header splitting or per-application flow steering.
 
-Both modes share an \iouring object interface for TCP, UDP, and block I/O. The kernel
-manages page reclamation independently of handle lifetime, so a relay can release an
-object while the protocol stack still references its pages. This enables zero-copy
-forwarding without application-page pinning or a separate buffer-reuse notification.
-
-In full-speed tests of an earlier TCP prototype, object sends used 15--27\% less CPU
-time per delivered byte than zero-copy sends that pinned application pages per send,
-for object sizes from 4~KiB to 1~MiB.
+We illustrate \sys with TCP streams, UDP datagrams, and block I/O. In full-speed
+tests of an earlier TCP prototype, object sends used 15--27\% less CPU time per
+delivered byte than zero-copy sends with per-send pinning for objects from 4~KiB
+to 1~MiB.
 % CLAIMS S1, full-speed matched comparison. The copying comparison (S6) is unmatched.
