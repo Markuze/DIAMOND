@@ -1,13 +1,11 @@
-The kernel cannot assume the residency or content stability of application-owned
-memory during I/O. Conventional sends copy the payload into kernel-owned buffers.
-A zero-copy send can borrow application pages and pin them to keep them resident.
-The application must preserve their contents until the kernel signals that the
-pages may be reused.
+The kernel may still need the payload after a send returns. Copying it into
+kernel-owned memory gives the stack control of the buffer's lifetime. A zero-copy
+send can borrow the application's pages. The kernel pins those pages and signals
+when the application may overwrite them.
 
-On receive, lending device buffers raises a different protection problem. A writable
-mapping can expose the packet headers the kernel uses for protocol processing. A
-shared receive pool can also expose unrelated traffic. Hardware-assisted receive
-paths split headers from payload and steer flows into application-specific queues.
+On receive, the kernel can lend access to buffers the device has filled. A writable
+mapping can expose protocol headers and unrelated traffic alongside the application's
+payload. Some receive interfaces rely on the network device to isolate that payload.
 
 We present \sys, a Linux I/O architecture that reverses the loan by separating
 payload access from page ownership. In \emph{named mode}, unprivileged applications
