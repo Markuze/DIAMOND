@@ -20,14 +20,15 @@ can carry both payload and the headers the kernel parses. Some receive interface
 rely on the device to split off those headers and steer an application's flows to
 dedicated queues~\cite{zcrx,maio}.
 
-\textcolor{blue}{A shared receive queue illustrates why buffer ownership matters.
-Suppose one service supplies the queue's buffers. A packet for a second service
-can then arrive in pages the first can read or change. Pinning can keep those
-pages resident after the supplier exits, but the kernel must keep the loan
-outstanding as long as the second service's socket holds the packet. With a
-kernel-owned pool, the socket can retain the packet without borrowing memory
-from either service. The packet remains available to its recipient if a trusted
-mapper exits, or if no process ever maps the pool.}
+\textcolor{blue}{A packet can outlive the process that supplied its buffer.
+Suppose one service supplies the buffers for a shared receive queue. A packet
+for a second service can then arrive in pages the first can read or change.
+If the first service exits while the packet is queued, the kernel must keep
+the borrowed pages pinned for as long as the receiving socket needs them.
+With a kernel-owned pool, the socket's own reference keeps the packet alive
+without borrowing pages from either service. A trusted process may map the
+pool for only part of the packet's lifetime. The data remains available to
+the recipient if that process exits, or if no process ever maps the pool.}
 
 \sys follows the principle \emph{lend, don't borrow}. The kernel owns the buffers
 throughout and lends access to the data they hold. It presents a completed range
