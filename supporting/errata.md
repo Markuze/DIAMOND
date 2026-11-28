@@ -3,13 +3,14 @@
 Corrections to the paper text, each on the owner's word.
 
 - **Text corrected:** `sections/*.tex` at commit `0258fe0` (2026-11-28). Every `file:line` below is in that commit.
-- **Written:** 2026-11-28. Amended the same day with errata 7–12, the background note in erratum 1 and the telling of the lifetime argument. Nothing in `sections/` has been edited to apply these.
-- **Order:** errata 1–6 by weight: erratum 1 changes what the paper may claim, the others change wording. Errata 7–12 are the story decisions of 2026-11-28, in the order the paper meets them.
+- **Written:** 2026-11-28. Amended the same day with errata 7–12 and the telling of the lifetime argument, and then with erratum 1 as it now stands. Nothing in `sections/` has been edited to apply these.
+- **Erratum 1 changed twice** on 2026-11-28. Its first version said to remove every header-copy statement. The decision is now deferred: leave those statements as they are.
+- **Order:** erratum 1 is deferred. Errata 2–6 change wording. Errata 7–12 are the story decisions of 2026-11-28, in the order the paper meets them.
 - **Whose words:** every correction is the owner's. Wording marked "mine" is a proposal by the agent that wrote this file, not a decision.
 
 | # | Correction | Kind |
 | --- | --- | --- |
-| 1 | DIAMOND does not copy headers | Wrong in the text: remove |
+| 1 | The header copy is an addendum | **Deferred:** leave the text as it is |
 | 2 | Say `CAP_NET_ADMIN`, not "trusted" | Underspecified: name it |
 | 3 | The results sentence, and "earlier prototype" numbers | Wrong in the text: replace |
 | 4 | Hardware independence is a statement of requirements | Wording rule |
@@ -23,76 +24,63 @@ Corrections to the paper text, each on the owner's word.
 | 12 | Cite DAMN; MAIO is an honorable mention | Citations |
 | – | The lifetime argument | Not an error: keep. A better telling is proposed |
 
-## 1. DIAMOND does not copy headers
+## 1. The header copy is an addendum: decision deferred
 
-**The owner, 2026-11-28:** "what header copies? we don't copy headers", and then "no header copies its useless".
+**Changed twice on 2026-11-28.** The first version of this erratum, pushed that day, said to remove every statement about a header copy. **Do not remove them, and do not build on them.** The owner has deferred the decision.
 
-**Correction.** Remove every statement that the driver or the kernel copies packet headers into private memory. A header copy is not a mechanism of the design, not the reason the mapped mode is safe, and not a cost of it.
+**The owner, 2026-11-28, in order:**
 
-### Where the text says it
+1. "what header copies? we don't copy headers", then "no header copies its useless", then "we dgaf about the driver and what it might or might not copy".
+2. "cap admin already allows modifying dropping and rerouting packets this doesnt expose much more than what a regular net_cap admin already can do with xdp ebpfs for example".
+3. "we can say toctou is a new problem, but this we can solve with header copy".
+4. Last: "the header copy is an addendum, its not critical we can decide later how we handle it and wether toctou is the new problem".
 
-| Location | Text | What to do |
-| --- | --- | --- |
-| `01-introduction.tex:52` | "the kernel parses private copies of packet headers" | Remove the clause. The sentence after it, on segregation working in software, stays and attaches to the dedicated area |
-| `03-lending.tex:34` | Figure box: "control structures and header copies" | "control structures" |
-| `03-lending.tex:40–41` | Figure arrow from the read/write area to private memory, "network headers for parsing" | Remove the arrow |
-| `03-lending.tex:45` | Caption: "On network input, the kernel copies headers into private memory before parsing them." | Remove the sentence |
-| `05-mapped.tex:21–28` | The paragraph "Network input poses a further problem": the driver copies an initial prefix, the stack brings further header bytes into private storage, "later writes cannot change the kernel's copy" | Remove those sentences. See the note on line 24–25 below |
-| `06-implementation.tex:19–20` | "The driver and stack together keep the headers used for parsing in private memory" | Remove |
-| `08-evaluation.tex:198–200` | "An independent protection test changes header bytes in the mapping after the kernel takes its private copy and checks which bytes the stack uses." | Remove |
-| `08-evaluation.tex:203` | Note: "Add the private-header and buffer-reclamation checks" | Drop "private-header and" |
-| `09-related.tex:20–23` | "the kernel keeps the header copies it parses in private memory. That choice extends writable receive to devices without hardware header splitting. It incurs the work of copying headers" | Remove the copies and the cost. "the mapper is trusted with the whole area" stays |
+### What holds now
 
-**Not covered by this erratum.** `05-mapped.tex:24–25` says the driver snapshots device control fields, including how many buffers hold a packet. That is device metadata, not a packet header. It stays unless the owner says otherwise. The same holds for "private control state" in `10-discussion.tex:16` and "Keeping control state private" in `10-discussion.tex:38`: these are about the kernel's own structures.
+**The mapped mode does not rest on the header copy.** It rests on two things the text already states:
 
-### What the text says in its place
+1. **Segmentation.** The area is dedicated I/O memory, and the kernel's control structures live outside it (`05-mapped.tex:14–19`). The owner's words: "carefully segmented kernel memory may be safely dedicated for user applications" (the week of 2026-11-24); "kernel memory segmentation which allows a net_admin user to access kernel memory safely" (2026-11-14).
+2. **Privilege.** Mapping the area requires `CAP_NET_ADMIN` (`05-mapped.tex:41–46`, and erratum 2). That privilege already covers the packets (statement 2 above): a process that holds it can already rewrite, drop and redirect every packet on the device, with tc or netfilter rules, or with an XDP program (which also needs `CAP_BPF`). The text says this once, where it names the capability.
 
-The owner's own words for why the mapped mode is safe:
+**The header-copy statements stay as they are until the owner decides.** Nobody removes them, expands them, or moves them forward in the argument.
 
-- "carefully segmented kernel memory may be safely dedicated for user applications" (the week of 2026-11-24);
-- "kernel memory segmentation which allows a net_admin user to access kernel memory safely" (2026-11-14).
+### What is open
 
-So the text rests the mapped mode on two things it already states:
+1. How the paper handles the header copy: as a mechanism it describes, as a detail of the implementation, or not at all.
+2. Whether the paper presents time of check to time of use as the one new problem that mapping adds, with the header copy as its answer (statement 3 above).
 
-1. **Segmentation.** The area is dedicated I/O memory, and the kernel's control structures live outside it (`05-mapped.tex:14–19`).
-2. **Privilege.** Mapping the area requires `CAP_NET_ADMIN` (`05-mapped.tex:41–46`, and erratum 2).
+### Where the text has the header copy
 
-### What not to write instead
+Leave each as it is.
 
-- **Not the opposite as a result.** Do not write "DIAMOND parses headers in place" or "no header byte is copied" as a property of the evaluated system. Removing a sentence is safe. Asserting the absence is a claim about the kernel that was measured, and the record below does not yet agree with it.
-- **Not a kernel-safety claim for the mapper.** The notes answered "can a mapper harm the kernel?" with "no, the kernel parses its own copies of the headers". With the copy gone, that answer has no stated basis. Until the owner gives the sentence that replaces it, the text says what is segmented and who may map, and does not say that a mapper cannot harm the kernel.
+| Location | Text |
+| --- | --- |
+| `01-introduction.tex:51–54` | "the kernel parses private copies of packet headers. This segregation works in software, including on devices without header splitting or per-application flow steering." |
+| `03-lending.tex:34`, `:40–41`, `:45` | Figure box "control structures and header copies", the arrow "network headers for parsing", and the caption sentence |
+| `05-mapped.tex:21–28` | "Network input poses a further problem…": the driver copies a prefix, the stack brings further header bytes into private storage, "later writes cannot change the kernel's copy" |
+| `06-implementation.tex:19–20` | "The driver and stack together keep the headers used for parsing in private memory" |
+| `08-evaluation.tex:198–200`, `:203` | The protection test that changes header bytes in the mapping after the kernel takes its copy |
+| `09-related.tex:20–23` | "the kernel keeps the header copies it parses in private memory. That choice extends writable receive to devices without hardware header splitting. It incurs the work of copying headers" |
 
 ### Background: why `RECV_ZC` requires header split
 
-The owner asked on 2026-11-28 why `RECV_ZC` needs header split when its user already holds `CAP_NET_ADMIN`. The two requirements answer different questions.
+The owner asked on 2026-11-28 why `RECV_ZC` needs header split when its user already holds `CAP_NET_ADMIN`.
 
-- **What the kernel documentation says** (`docs.kernel.org/networking/iou-zcrx.html`, read 2026-11-28). Header split is required so that headers are "received into kernel memory as normal" and processed by the TCP stack, while payload goes directly into userspace memory. Flow steering is required so that only the chosen flows reach the zero-copy queues, and RSS so that all other flows stay away from them. The page names no capability.
-- **The reading in the project's notes** (`supporting/novelty.md:331–342`). Header split answers whether the application can harm the kernel: the headers the kernel acts on must not land in memory the application can write. Steering, or privilege, answers whether the application may see other flows' bytes. Privilege settles only the second question.
+- **`RECV_ZC`.** It receives payload into the application's memory, and the stack does not read that memory: zcrx marks it unreadable "by policy, not necessity" (`supporting/novelty.md:327`). So headers have to land in ordinary kernel memory to be parsed at all. The kernel documentation gives this placement as the reason: headers are "received into kernel memory as normal", and payload goes directly into userspace memory (`docs.kernel.org/networking/iou-zcrx.html`, read 2026-11-28). Steering and RSS keep every other flow off that queue.
+- **Mapped mode.** Its area is kernel memory, and the stack reads it like any other receive buffer, so the device does not have to place anything elsewhere.
 
-What this means for the paper:
+**Still needed.** The statement in erratum 10, that `RECV_ZC` requires `CAP_NET_ADMIN`, wants a citation to the kernel source. The documentation page names no capability.
 
-- A reviewer will ask what does the job of header split in mapped mode, where the mapper can write the area and the area receives whole packets. That is the sentence this erratum still waits for (the second bullet under "What not to write instead").
-- The statement in erratum 10, that `RECV_ZC` requires `CAP_NET_ADMIN`, needs a citation to the kernel source. The documentation page does not state it.
+### The project record
 
-### Where the error came from
-
-The paper took it from the project record in the `zc_proxy` repository, which still describes a private header copy:
+The record in the `zc_proxy` repository describes a header copy. Whether the paper relies on it is part of the open decision.
 
 - a commit in the kernel series, `5038105`, "virtio_net: copy headers into a private skb head for provider queues" (listed in `maio_handover.md`);
 - `maio_handover.md` §2.4, "Private-header requirement and the driver limit";
 - `docs/design_spec.md`, the virtio-net paragraph and the flag `PP_FLAG_PRIVATE_HEADERS`;
 - `docs/glossary.md`, the entry "Private headers".
 
-For the paper, the owner's statement overrides these. This file does not correct them: the owner reconciles the code and the specification. An agent that reads the specification must not put the header copy back into the paper.
-
-### The same statement in `supporting/`
-
-These notes are copies of older planning documents and carry the same statement. They are superseded on this point and are not edited here.
-
-| File | Lines |
-| --- | --- |
-| `supporting/novelty.md` | 98, 150, 196–197, 357–360 |
-| `supporting/outline.md` | 134, 162, 180, 290, 294, 297, 610, 647, 817, 1290 |
+The notes in `supporting/` describe the copy as well: `novelty.md` (98, 150, 196–197, 331–346, 357–360) and `outline.md` (134, 162, 180, 290, 294, 297, 610, 647, 817, 1290). They are neither confirmed nor superseded on this point until the decision is made.
 
 ## 2. Say `CAP_NET_ADMIN`, not "trusted"
 
@@ -307,7 +295,7 @@ No shortening pass cuts these:
 
 ### How to tell it
 
-The owner asked on 2026-11-28 how the argument could be told better. The proposal below is mine. The owner's reply to it was the question about `RECV_ZC` (the background note in erratum 1), and then "otherwise ammend errate.md".
+The owner asked on 2026-11-28 how the argument could be told better. The proposal below is mine. The owner's reply to it was the question about `RECV_ZC` (answered in erratum 1), and then "otherwise ammend errate.md". The draft paragraph was revised afterwards to give header split and steering the same cause.
 
 The dismissal to block says that access is the same as with `RECV_ZC`, so the origin of the memory does not matter. The answer: origin decides who is responsible for a buffer, and who else can use it. That has three consequences, and the text leads with the rarest.
 
@@ -319,4 +307,4 @@ The dismissal to block says that access is the same as with `RECV_ZC`, so the or
 
 Draft paragraph, mine, in place of `01-introduction.tex:23–31`. It also carries the case for mapped mode (erratum 10):
 
-> Mapped mode is zero copy from receive to send. The device receives into a dedicated area of kernel memory. A process with `CAP_NET_ADMIN` maps the area, works on the payload where it lies, and sends it from there. io_uring's zero-copy receive asks for the same privilege, and also for a device that splits headers and steers flows. The difference is whose memory it is. There the buffers are the application's: only its flows may land in them, it must hand each one back, and to forward a buffer it must hold it until the send side reports. Here the buffers are the kernel's. Everything the device receives lands in them and the stack sorts it afterwards, so sockets that know nothing of DIAMOND are served from the same area. The application sends an object and forgets it, and the kernel returns each page to the device when its last user is done, retransmissions included. The process that mapped the area can exit, and nothing in flight is lost.
+> Mapped mode is zero copy from receive to send. The device receives into a dedicated area of kernel memory. A process with `CAP_NET_ADMIN` maps the area, works on the payload where it lies, and sends it from there. io_uring's zero-copy receive asks for the same privilege, and also for a device that splits headers and steers flows. The difference is whose memory it is. There the buffers are the application's. The stack does not read them, so headers must land elsewhere and only the application's own flows may land in them. The application must hand each buffer back, and to forward one it must hold it until the send side reports. Here the buffers are the kernel's. Everything the device receives lands in them and the stack reads and sorts it as it always has, so sockets that know nothing of DIAMOND are served from the same area. The application sends an object and forgets it, and the kernel returns each page to the device when its last user is done, retransmissions included. The process that mapped the area can exit, and nothing in flight is lost.
