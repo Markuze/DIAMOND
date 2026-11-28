@@ -2,7 +2,7 @@ Moving I/O data between the kernel and applications consumes CPU time and memory
 
 We present \sys, a Linux I/O architecture that makes kernel-owned buffers the basis for zero-copy I/O.
 \sys reverses the direction of buffer lending: rather than having the kernel borrow buffers from applications, it retains ownership in the kernel and lends access according to application authority.
-By separating buffer ownership from data access, \sys \reviewold{accommodates different protection requirements within a common architecture. }\reviewnew{gives each buffer a lifetime independent of any single process. A packet can remain queued for one service after the process that mapped its pages exits.}
+By separating buffer ownership from data access, \sys gives each buffer a lifetime independent of any single process. A packet can remain queued for one service after the process that mapped its pages exits.
 \emph{Named} mode gives unprivileged applications checked handles to retained I/O objects without mapping their backing pages, while \emph{mapped} mode gives trusted applications direct read/write access to a dedicated I/O region. Both modes operate without specialized hardware support.
 
 We demonstrate \sys{}'s generality across TCP streams, UDP datagrams, and block I/O, consistently reducing CPU time per delivered byte compared to alternatives.

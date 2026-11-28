@@ -20,7 +20,7 @@ can carry both payload and the headers the kernel parses. Some receive interface
 rely on the device to split off those headers and steer an application's flows to
 dedicated queues~\cite{zcrx,maio}.
 
-\reviewnew{A packet can outlive the process that supplied its buffer.
+A packet can outlive the process that supplied its buffer.
 Suppose one service supplies the buffers for a shared receive queue. A packet
 for a second service can then arrive in pages the first can read or change.
 If the first service exits while the packet is queued, the kernel must keep
@@ -28,7 +28,7 @@ the borrowed pages pinned for as long as the receiving socket needs them.
 With a kernel-owned pool, the socket's own reference keeps the packet alive
 without borrowing pages from either service. A trusted process may map the
 pool for only part of the packet's lifetime. The data remains available to
-the recipient if that process exits, or if no process ever maps the pool.}
+the recipient if that process exits, or if no process ever maps the pool.
 
 \sys follows the principle \emph{lend, don't borrow}. The kernel owns the buffers
 throughout and lends access to the data they hold. It presents a completed range
