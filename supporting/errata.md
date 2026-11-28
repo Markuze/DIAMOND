@@ -3,8 +3,9 @@
 Corrections to the paper text, each on the owner's word.
 
 - **Text corrected:** `sections/*.tex` at commit `0258fe0` (2026-11-28). Every `file:line` below is in that commit.
-- **Written:** 2026-11-28. Nothing in `sections/` has been edited to apply these.
-- **Order:** by weight. Erratum 1 changes what the paper may claim. The others change wording.
+- **Written:** 2026-11-28. Amended the same day with errata 7–12, the background note in erratum 1 and the telling of the lifetime argument. Nothing in `sections/` has been edited to apply these.
+- **Order:** errata 1–6 by weight: erratum 1 changes what the paper may claim, the others change wording. Errata 7–12 are the story decisions of 2026-11-28, in the order the paper meets them.
+- **Whose words:** every correction is the owner's. Wording marked "mine" is a proposal by the agent that wrote this file, not a decision.
 
 | # | Correction | Kind |
 | --- | --- | --- |
@@ -14,7 +15,13 @@ Corrections to the paper text, each on the owner's word.
 | 4 | Hardware independence is a statement of requirements | Wording rule |
 | 5 | XDP is not a concern | Do not add |
 | 6 | Block I/O is being measured | Pending results |
-| – | The lifetime argument | Not an error: keep |
+| 7 | The claim is "faster with fewer prerequisites" | Wrong emphasis: replace |
+| 8 | What "zero copy" means in each mode | Missing: define |
+| 9 | The opening example is a key-value store | Replace the example |
+| 10 | Mapped mode is complete zero copy, for the privilege `RECV_ZC` already requires | Undersold: restate |
+| 11 | Named mode: backpressure and reusable buffers | Missing where it is compared: add |
+| 12 | Cite DAMN; MAIO is an honorable mention | Citations |
+| – | The lifetime argument | Not an error: keep. A better telling is proposed |
 
 ## 1. DIAMOND does not copy headers
 
@@ -54,6 +61,18 @@ So the text rests the mapped mode on two things it already states:
 
 - **Not the opposite as a result.** Do not write "DIAMOND parses headers in place" or "no header byte is copied" as a property of the evaluated system. Removing a sentence is safe. Asserting the absence is a claim about the kernel that was measured, and the record below does not yet agree with it.
 - **Not a kernel-safety claim for the mapper.** The notes answered "can a mapper harm the kernel?" with "no, the kernel parses its own copies of the headers". With the copy gone, that answer has no stated basis. Until the owner gives the sentence that replaces it, the text says what is segmented and who may map, and does not say that a mapper cannot harm the kernel.
+
+### Background: why `RECV_ZC` requires header split
+
+The owner asked on 2026-11-28 why `RECV_ZC` needs header split when its user already holds `CAP_NET_ADMIN`. The two requirements answer different questions.
+
+- **What the kernel documentation says** (`docs.kernel.org/networking/iou-zcrx.html`, read 2026-11-28). Header split is required so that headers are "received into kernel memory as normal" and processed by the TCP stack, while payload goes directly into userspace memory. Flow steering is required so that only the chosen flows reach the zero-copy queues, and RSS so that all other flows stay away from them. The page names no capability.
+- **The reading in the project's notes** (`supporting/novelty.md:331–342`). Header split answers whether the application can harm the kernel: the headers the kernel acts on must not land in memory the application can write. Steering, or privilege, answers whether the application may see other flows' bytes. Privilege settles only the second question.
+
+What this means for the paper:
+
+- A reviewer will ask what does the job of header split in mapped mode, where the mapper can write the area and the area receives whole packets. That is the sentence this erratum still waits for (the second bullet under "What not to write instead").
+- The statement in erratum 10, that `RECV_ZC` requires `CAP_NET_ADMIN`, needs a citation to the kernel source. The documentation page does not state it.
 
 ### Where the error came from
 
@@ -160,6 +179,119 @@ The owner's description of the block paths, for whoever rewrites that text (the 
 - **Write.** A write to a block device needs compaction. After it the write is simple, and needs no `O_DIRECT`, which still pins the user's pages.
 - **Mapped.** A similar path, with memory from the pool that the `CAP_NET_ADMIN` process has access to.
 
+## 7. The claim is "faster with fewer prerequisites"
+
+**The owner, 2026-11-28:** "the story is faster with fewer prerequisites".
+
+**Correction.** The abstract and the introduction state this as the paper's claim. Today they state two other things: that a unified mechanism is missing, and that the contribution is a common interface.
+
+| Location | Text | What to do |
+| --- | --- | --- |
+| `00-abstract.tex:1` | "What is missing is a unified mechanism for reusing kernel-resident I/O data across I/O paths and application trust levels." | Replace. The problem is what zero copy asks for today: on send, pinned pages that stay unchanged until a notification; on receive, a device that splits headers and steers flows. The same paragraph already names both, as "buffer-management obligations" and "specialized hardware" |
+| `01-introduction.tex:58` | "The contribution is a common object interface for these two levels of trust." | Replace with the claim: zero copy that is faster and asks less of the application and of the device. The common interface is how, not what |
+| `08-evaluation.tex:6–7` | "The central question is how much CPU a service spends delivering a byte that is already in memory." | Keep, and add the second question: what each path requires of the application and of the device. Today that is one late paragraph, "Device support" (`08-evaluation.tex:100–105`) |
+
+The title already says it and stays.
+
+## 8. What "zero copy" means in each mode
+
+**The owner, 2026-11-28:** "mapped is always ZC but needs driver support". Named mode "is ZC in the sence that it doesnt force you copy anything you dont need" and "asks nothing from you totally HW agnostic". (The owner said "opaque" for named mode.)
+
+**Correction.** Define zero copy once for each mode, where the mode is introduced. A fallback copy inside the kernel is described after the rule, as the exception.
+
+- **Named.** The application is never made to copy bytes it does not need: it copies out only what it chooses to read. The mode asks nothing of the device or its driver.
+- **Mapped.** Always zero copy. It needs driver support.
+
+| Location | Text | What to do |
+| --- | --- | --- |
+| `01-introduction.tex:42–47` | The named-mode paragraph. It lists the operations and never says in what sense the mode is zero copy | Add the definition |
+| `04-named.tex:50–52` | "Where possible, network capture retains the pages that already hold the payload. It copies readable fragments into store-owned buffers when sharing the original pages would be unsafe" | The section's first statement about copying is the fallback. State the rule first |
+| `05-mapped.tex:53–54` | "It retains eligible pages by reference and copies other readable input into area pages." | The rule and the exception carry equal weight. State the rule first |
+| `00-abstract.tex:6` | "Both modes operate without specialized hardware support." | Say what each mode asks: named nothing, mapped driver support and no hardware feature (with erratum 4) |
+
+## 9. The opening example is a key-value store
+
+**The owner, 2026-11-28:** "The opening example should be KVS."
+
+**Correction.** The introduction opens on an in-memory key-value store: a client sets a value, and many clients read it. The storage server and the relay are no longer the opening.
+
+| Location | Text | What to do |
+| --- | --- | --- |
+| `01-introduction.tex:4–11` | "Consider a storage server that reads a block once and sends it to several clients…", then the relay | Replace with the key-value store |
+| `02-borrowing.tex:6–7` | "Two kinds of reuse arise in the storage server from §1." | Follows the new example |
+| `03-lending.tex:7–9`, `:53` | "a server can read a range from a block device, send it to two clients…"; "Consider the server's last send." | Follow the new example |
+| `07-applications.tex:31–36` | The key-value server: one paragraph inside the TCP subsection | Becomes the section's lead example |
+| `08-evaluation.tex:185` | The key-value server: last in the evaluation | Its result answers the opening |
+
+Draft opening, mine, for discussion:
+
+> Consider an in-memory key-value store whose values are large. A client sets a value, and many clients then read it, some of them slowly. The store needs a few bytes of each request to find the key. It needs none of the value's bytes: it only has to keep them and send them again. Today it either copies each value in from the socket and out again on every read, or it accepts the conditions of zero copy. Its memory is pinned, and it must leave a value untouched for as long as any reader is still being sent it. When a value is replaced while slow readers are being served, the store itself must work out when the old memory is free.
+
+**Related work for this example.** PASTE's key-value store keeps the received packet buffer as the value and sends it again without a copy (`RELATED_WORK.md` in `zc_proxy`). The existing citations stay (`01-introduction.tex:59–60`, `02-borrowing.tex:66`, `09-related.tex:7–8`). The owner regards the differences from it as "minor details" (2026-11-28): it gets no more room than it has.
+
+## 10. Mapped mode is complete zero copy, for the privilege `RECV_ZC` already requires
+
+**The owner, 2026-11-28:** "its a true e2e zc its the zc panacea it has two limitations that are lower than any other no special HW first in breed and it needs net_cap_admin that RECV_ZC already claims".
+
+**Correction.** Mapped mode is introduced as zero copy from receive to send. Its two requirements are stated as lower than those of any existing interface:
+
+1. driver support, and no special hardware;
+2. `CAP_NET_ADMIN`, which `RECV_ZC` requires as well.
+
+The text introduces the mode by a narrower need, and illustrates it with an edit to one field.
+
+| Location | Text | What to do |
+| --- | --- | --- |
+| `01-introduction.tex:49` | "A trusted application can also read and edit data in place." | Lead with the case: the application receives, works on and sends payload where it lies |
+| `05-mapped.tex:4` | "A service that transforms payload in place needs write access." | The same |
+| `05-mapped.tex:57–58` | "a relay can edit a fixed-width field at a returned offset and then send the object" | May stay as an illustration. It is not the motivation |
+
+**Source needed.** That `RECV_ZC` registration requires `CAP_NET_ADMIN` is not stated on the kernel's documentation page for it (read 2026-11-28). Table 1 says "administrative registration" (`02-borrowing.tex:34`). Cite the kernel source for the capability check where the text leans on it.
+
+Proposed wording for the abstract, mine:
+
+> A *mapped* object lies in a dedicated I/O area that a process with `CAP_NET_ADMIN` maps. The process receives, works on and sends payload where it lies, zero copy from end to end. Zero-copy receive already requires that privilege today; what it no longer requires is special hardware.
+
+## 11. Named mode: backpressure and reusable buffers
+
+**The owner, 2026-11-28:** "Named mode actually handles backpressure and the buffers are reusable".
+
+**Correction.** Where named mode is set against the kernel's existing paths, name both properties together.
+
+| Location | Text | What to do |
+| --- | --- | --- |
+| `09-related.tex:25–33` | "What survives an I/O request?" compares named mode with `sendfile`, `splice`, `tee`, a registered pool and ublk. It says only that an object outlives its request | Add the pair: an object is sent many times, and each send keeps its own place under backpressure |
+| `03-lending.tex:64–65`, `07-applications.tex:21`, `:24` | Where the text has the two properties today, apart from each other | Keep |
+
+A note on the comparison, mine. Backpressure alone does not separate named mode from `splice`: the text says all the relays "preserve byte order and backpressure" (`08-evaluation.tex:75`). The pair does, for data that arrived from the network:
+
+- `splice` keeps its data in a bounded pipe with no named ranges (`02-borrowing.tex:44–47`);
+- sockmap has no retained range (`02-borrowing.tex:56–59`) and, in the record, no backpressure (`CLAIMS.md` F2 in `zc_proxy`);
+- `sendfile` has both, once the data is in a file.
+
+Do not write that a pipe cannot retain or duplicate data: `tee` duplicates it.
+
+## 12. Cite DAMN; MAIO is an honorable mention
+
+**The owner, 2026-11-28:**
+
+- "the mapped work should cited as a successor of DAMN that used memory segmentation for device-kernel security";
+- on MAIO: "maio is the actual prior work but I also used HW support just like RECV_ZC and its not peer reviewed so it deserves just an honor mention";
+- on weight: "I wouldn't press on damn too much I would quote it but Im not confident it needs a full paragraph".
+
+**Correction.** DAMN is cited once, in a clause, where the dedicated area is introduced: the mapped mode continues DAMN's segmentation of I/O memory, which protected the kernel from a device. MAIO keeps one mention beside `RECV_ZC` and loses its other three places.
+
+| Location | Text | What to do |
+| --- | --- | --- |
+| `refs.bib` | No entry for DAMN | Add it: Markuze, Smolyar, Morrison and Tsafrir, "DAMN: Overhead-Free IOMMU Protection for Networking", ASPLOS 2018. This entry is written from memory: the owner confirms it |
+| `05-mapped.tex:14–19` | The paragraph on what the area contains and what stays private | Add the clause that cites DAMN |
+| `01-introduction.tex:21` | "dedicated queues~\cite{zcrx,maio}" | Stays. This is the mention |
+| `01-introduction.tex:59–61` | "MAIO separates writable I/O memory from kernel state" | Remove MAIO from the sentence. It credits the mapped mode's own idea to a citation |
+| `02-borrowing.tex:70–73` | The MAIO row under "Research designs" in Table 1 | Remove the row |
+| `09-related.tex:15–18` | "MAIO preserves kernel TCP and segregates writable I/O memory…" | Reduce to a clause, or remove. ZeroNIC stays |
+
+Proposed clause, mine: "…kept apart from kernel state, the segregation DAMN introduced between a device and the kernel."
+
 ## Not an error: keep the lifetime argument
 
 **The owner, 2026-11-28:** "the lifetime clarification is paramount". It stops a reader dismissing mapped objects as the same as `RECV_ZC`, with "who cares where the memory originated, everyone has access".
@@ -172,3 +304,19 @@ No shortening pass cuts these:
 | `01-introduction.tex:23–31` | "A packet can outlive the process that supplied its buffer." |
 | `03-lending.tex:49–78` | "One object, three lifetimes" |
 | `05-mapped.tex:64–87` | "Returning buffers to the device" |
+
+### How to tell it
+
+The owner asked on 2026-11-28 how the argument could be told better. The proposal below is mine. The owner's reply to it was the question about `RECV_ZC` (the background note in erratum 1), and then "otherwise ammend errate.md".
+
+The dismissal to block says that access is the same as with `RECV_ZC`, so the origin of the memory does not matter. The answer: origin decides who is responsible for a buffer, and who else can use it. That has three consequences, and the text leads with the rarest.
+
+| Order | Consequence | Where the text has it today |
+| --- | --- | --- |
+| 1. Forward | With `RECV_ZC` and `SEND_ZC` the application holds each receive buffer until the send side reports, then returns it. With a mapped object it sends and forgets, and the kernel reclaims | `05-mapped.tex:82–85`, as a closing detail |
+| 2. Share | The stack sorts packets after they arrive, so other sockets are served from the same area and no steering is needed | `05-mapped.tex:37–38`, as a caveat |
+| 3. Exit | The mapper can exit, and nothing in flight is lost | `00-abstract.tex:5` and `01-introduction.tex:23–31`: the lead today |
+
+Draft paragraph, mine, in place of `01-introduction.tex:23–31`. It also carries the case for mapped mode (erratum 10):
+
+> Mapped mode is zero copy from receive to send. The device receives into a dedicated area of kernel memory. A process with `CAP_NET_ADMIN` maps the area, works on the payload where it lies, and sends it from there. io_uring's zero-copy receive asks for the same privilege, and also for a device that splits headers and steers flows. The difference is whose memory it is. There the buffers are the application's: only its flows may land in them, it must hand each one back, and to forward a buffer it must hold it until the send side reports. Here the buffers are the kernel's. Everything the device receives lands in them and the stack sorts it afterwards, so sockets that know nothing of DIAMOND are served from the same area. The application sends an object and forgets it, and the kernel returns each page to the device when its last user is done, retransmissions included. The process that mapped the area can exit, and nothing in flight is lost.
