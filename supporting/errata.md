@@ -3,9 +3,9 @@
 Corrections to the paper text, each on the owner's word.
 
 - **Text corrected:** `sections/*.tex` at commit `0258fe0` (2026-11-28). Every `file:line` below is in that commit.
-- **Written:** 2026-11-28. Amended the same day with errata 7–12 and the telling of the lifetime argument, and then with erratum 1 as it now stands, including the privilege claim checked against the kernel source. Nothing in `sections/` has been edited to apply these.
+- **Written:** 2026-11-28. Amended the same day with errata 7–13 and the telling of the lifetime argument, and then with erratum 1 as it now stands, including the privilege claim checked against the kernel source. Nothing in `sections/` has been edited to apply these.
 - **Erratum 1 changed twice** on 2026-11-28. Its first version said to remove every header-copy statement. The decision is now deferred: leave those statements as they are.
-- **Order:** erratum 1 is deferred. Errata 2–6 change wording. Errata 7–12 are the story decisions of 2026-11-28, in the order the paper meets them.
+- **Order:** erratum 1 is deferred. Errata 2–6 change wording. Errata 7–12 are the story decisions of 2026-11-28, in the order the paper meets them. Erratum 13 is the contrast they hang on, with what the kernel record does and does not say about it.
 - **Whose words:** every correction is the owner's. Wording marked "mine" is a proposal by the agent that wrote this file, not a decision.
 
 | # | Correction | Kind |
@@ -22,6 +22,7 @@ Corrections to the paper text, each on the owner's word.
 | 10 | Mapped mode is complete zero copy, for the privilege `RECV_ZC` already requires | Undersold: restate |
 | 11 | Named mode: backpressure and reusable buffers | Missing where it is compared: add |
 | 12 | Cite DAMN; MAIO is an honorable mention | Citations |
+| 13 | Borrowed memory is fenced off from the stack; lent memory is segmented | Story: add, within the stated limits |
 | – | The lifetime argument | Not an error: keep. A better telling is proposed |
 
 ## 1. The header copy is an addendum: decision deferred
@@ -304,6 +305,67 @@ Do not write that a pipe cannot retain or duplicate data: `tee` duplicates it.
 
 Proposed clause, mine: "…kept apart from kernel state, the segregation DAMN introduced between a device and the kernel."
 
+## 13. Borrowed memory is fenced off from the stack; lent memory is segmented
+
+**The owner, 2026-11-28:** "borrowed memory is fenced from the stack!!!! thats the fucking golden ticket why we need memory segemntation!!!" And then: "we need to be carefull about why fencing was introduced, i suspect its the lifetime of the process".
+
+**Correction.** The text gains one contrast, and builds the case for segmentation on it. There are two ways to make memory that an application can see safe for the kernel:
+
+- **Borrow and fence.** The memory is the application's. The network stack is not allowed to read it, and everything else follows from that.
+- **Lend and segment.** The memory is the kernel's. The stack reads it like any other buffer, and it only has to be kept apart from the rest of the kernel's memory.
+
+Header split, flow steering, the DAMN lineage (erratum 12) and the lifetime argument then have one cause. It is also the direct answer to "who cares where the memory originated": origin decides whether the stack can touch it.
+
+"Fenced" is this file's word. The kernel's term is unreadable memory: introduce the image, and cite the mechanism.
+
+### What the fence costs
+
+Each row was checked on 2026-11-28 against mainline source or documentation.
+
+| Cost | Source |
+| --- | --- |
+| Header split, with a zero threshold | `__netif_mp_open_rxq()` in `net/core/netdev_rx_queue.c` |
+| Flow steering and RSS, to keep every other flow off the queue | `docs.kernel.org/networking/iou-zcrx.html` |
+| No XDP program on the device: the binding is refused | `net/core/netdev_rx_queue.c` |
+| The stack has no address through which to read the buffer | `netmem_address()` in `include/net/netmem.h`; `docs.kernel.org/networking/netmem.html` |
+| For device memory: no loopback, no software checksum, no payload for tcpdump or BPF | `docs.kernel.org/networking/devmem.html` |
+
+### Why the fence exists: what is stated, and what is not
+
+| Statement | Status | Source |
+| --- | --- | --- |
+| The fence was introduced for device memory that the host cannot access | Stated | Commit message of "net: add support for skbs with unreadable frags" (device-memory TCP). It mentions neither process lifetime nor security |
+| io_uring's zero-copy receive reuses that infrastructure | Stated | Cover letter of "io_uring zero copy rx", v11 |
+| In io_uring's receive the lifetime of all objects is "bound to an io_uring instance", and the data buffers' lifetime is managed by io_uring, not by the networking stack, with different refcounting rules | Stated | The same cover letter |
+| Header split, steering and RSS keep headers in kernel memory and other flows off the queue | Stated | The same cover letter |
+| Keeping the reference count in the buffer's own descriptor manages lifetimes without extra code on the stack's common paths | Stated | An earlier cover letter of the same work (RFC v4) |
+| The fence exists because of process lifetime, application exit, or because the application could modify the memory | **Not stated** anywhere that was read | – |
+| For io_uring's memory the fence is a necessity | **Not so.** The header says such memory may be readable or not, and that today's kinds are not | `include/net/netmem.h` |
+
+Not read in full: the thread of the first posting (v1), with its section on refcounting and on what happens when the ring exits.
+
+### What to write, and what not
+
+- **Write, with a citation to its authors:** in io_uring's zero-copy receive, buffer lifetime is bound to the ring and managed by io_uring, not by the stack. This is the lifetime argument in the other side's own words (see "Not an error: keep the lifetime argument").
+- **Write:** the stack cannot read those buffers, so headers must stay in kernel memory.
+- **Write "today's zero-copy receive".** The fence is the present implementation, not a necessity.
+- **Do not write** that the fence was introduced because of process lifetime. It was introduced for device memory, and inherited.
+- **Ours to argue, and marked as our reading:** buffers whose lifetime belongs to a ring cannot circulate in the stack as ordinary pages, so keeping the stack away from them is what makes that lifetime workable.
+
+Proposed wording, mine:
+
+> Borrowed memory has to be fenced off from the network stack: the stack may not read it, so the device must place headers elsewhere and keep every other flow away. DIAMOND moves the fence. Its I/O area is kernel memory that the stack reads like any other buffer, segmented from the rest of the kernel's memory, so mapping it exposes I/O data and no kernel state.
+
+### Sources read
+
+These are the copies that were read. The paper cites the kernel tree and the original list archive.
+
+- `lists.openwall.net/netdev/2025/01/16/391`: [PATCH net-next v11 00/21] io_uring zero copy rx, cover letter
+- `lore.gnuweeb.org/io-uring/e7388f1a-82c9-48f9-8490-393b665d6913@kernel.dk/T/`: [PATCH v1 00/15] io_uring zero copy rx, thread, read in part
+- `www.mail-archive.com/dri-devel@lists.freedesktop.org/msg509037.html`: [PATCH net-next v26 08/13] net: add support for skbs with unreadable frags
+- `lwn.net/Articles/965214/`: Zero copy Rx using io_uring, RFC v4 cover letter
+- Kernel source and documentation as named in the two tables, mainline
+
 ## Not an error: keep the lifetime argument
 
 **The owner, 2026-11-28:** "the lifetime clarification is paramount". It stops a reader dismissing mapped objects as the same as `RECV_ZC`, with "who cares where the memory originated, everyone has access".
@@ -321,7 +383,7 @@ No shortening pass cuts these:
 
 The owner asked on 2026-11-28 how the argument could be told better. The proposal below is mine. The owner's reply to it was the question about `RECV_ZC` (answered in erratum 1), and then "otherwise ammend errate.md". The draft paragraph was revised afterwards to give header split and steering the same cause.
 
-The dismissal to block says that access is the same as with `RECV_ZC`, so the origin of the memory does not matter. The answer: origin decides who is responsible for a buffer, and who else can use it. That has three consequences, and the text leads with the rarest.
+The dismissal to block says that access is the same as with `RECV_ZC`, so the origin of the memory does not matter. The answer: origin decides who is responsible for a buffer, and who else can use it. io_uring's own cover letter states the other side: there, buffer lifetime is bound to the ring (erratum 13). That has three consequences, and the text leads with the rarest.
 
 | Order | Consequence | Where the text has it today |
 | --- | --- | --- |
