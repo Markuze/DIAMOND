@@ -197,8 +197,10 @@ For mapped receive, releasing a handle can leave a page waiting for TCP
 retransmission. A slow-reader test can distinguish pages waiting on such
 references from pages ready to return to the device. An independent protection
 test changes header bytes in the mapping after the kernel takes its private
-copy and checks which bytes the stack uses. These tests exercise the two
+copy and checks which bytes the stack uses. \reviewold{These tests exercise the two
 promises of segregation: the mapper may edit data, and the kernel retains
-control of parsing and page reuse.
+control of parsing and page reuse.\space}%
+\reviewnew{A planned lifetime test queues a packet on another service's socket,
+lets the mapper exit, then checks the payload at the receiver.}
 \todom{Add the private-header and buffer-reclamation checks, including
 exhaustion, cross-CPU returns and teardown with outstanding references.}

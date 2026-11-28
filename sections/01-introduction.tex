@@ -20,7 +20,7 @@ can carry both payload and the headers the kernel parses. Some receive interface
 rely on the device to split off those headers and steer an application's flows to
 dedicated queues~\cite{zcrx,maio}.
 
-\textcolor{blue}{A packet can outlive the process that supplied its buffer.
+\reviewnew{A packet can outlive the process that supplied its buffer.
 Suppose one service supplies the buffers for a shared receive queue. A packet
 for a second service can then arrive in pages the first can read or change.
 If the first service exits while the packet is queued, the kernel must keep

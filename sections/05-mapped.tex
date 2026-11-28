@@ -64,11 +64,16 @@ those offsets for this object, even though the area itself stays mapped.
 \subsection{Returning buffers to the device}
 \label{sec:mapped:recycle}
 
-Returning a buffer too early would let the next packet overwrite data still
+\reviewold{Returning a buffer too early would let the next packet overwrite data still
 in use. The area and its mappings hold long-lived references to each page.
 Before posting a page to the device again, the kernel checks that its ordinary
 reference count has fallen back to this baseline and that all users of the
-receive pool have dropped their references.
+receive pool have dropped their references.\space}%
+\reviewnew{If the mapper exits, a packet queued on another socket keeps its own
+page reference. Closing the last registration stops the driver from drawing new
+buffers from this area. While the area is active, a page can return to the driver
+when all receive-pool users release it and its reference count returns to the
+baseline held by the area and its mappings.}
 
 For a mapped object that has been sent, removing the handle and finishing
 send queueing leave a record of the object's pages. A background reclaimer

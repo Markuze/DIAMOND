@@ -34,6 +34,8 @@
 % captions, and for a paragraph that is only a note. Use those in moving arguments.
 \newif\ifdraft
 \drafttrue
+\newcommand{\reviewold}[1]{\ifdraft\textcolor{red}{#1}\fi}
+\newcommand{\reviewnew}[1]{\ifdraft\textcolor{blue}{#1}\else#1\fi}
 \newcommand{\todomi}[1]{\ifdraft\textcolor{red}{[measure: #1]}\fi}
 \newcommand{\tododi}[1]{\ifdraft\textcolor{blue}{[decide: #1]}\fi}
 \newcommand{\todovi}[1]{\ifdraft\textcolor{orange}{[verify: #1]}\fi}

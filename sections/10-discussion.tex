@@ -36,8 +36,10 @@ A service can decide where I/O data goes without taking ownership of the
 memory that holds it. \sys gives an unprivileged service a checked handle to
 those bytes and a trusted service the option to edit them in a dedicated I/O
 area. Keeping control state private makes the second option possible in
-software. Keeping reclamation in the kernel lets an application release its
-handle while a socket or device still uses the pages. The same distinction
+software. \reviewold{Keeping reclamation in the kernel lets an application release its
+handle while a socket or device still uses the pages.\space}%
+\reviewnew{A service can release a handle or unmap a buffer while a socket or
+device still holds the pages.} The same distinction
 between access and ownership applies to a stream forwarded once, a datagram
 routed by its contents and a block read once and served many times.
 \label{body:end}
