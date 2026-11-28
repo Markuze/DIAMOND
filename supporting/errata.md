@@ -3,7 +3,7 @@
 Corrections to the paper text, each on the owner's word.
 
 - **Text corrected:** `sections/*.tex` at commit `0258fe0` (2026-11-28). Every `file:line` below is in that commit.
-- **Written:** 2026-11-28. Amended the same day with errata 7–12 and the telling of the lifetime argument, and then with erratum 1 as it now stands. Nothing in `sections/` has been edited to apply these.
+- **Written:** 2026-11-28. Amended the same day with errata 7–12 and the telling of the lifetime argument, and then with erratum 1 as it now stands, including the privilege claim checked against the kernel source. Nothing in `sections/` has been edited to apply these.
 - **Erratum 1 changed twice** on 2026-11-28. Its first version said to remove every header-copy statement. The decision is now deferred: leave those statements as they are.
 - **Order:** erratum 1 is deferred. Errata 2–6 change wording. Errata 7–12 are the story decisions of 2026-11-28, in the order the paper meets them.
 - **Whose words:** every correction is the owner's. Wording marked "mine" is a proposal by the agent that wrote this file, not a decision.
@@ -40,7 +40,7 @@ Corrections to the paper text, each on the owner's word.
 **The mapped mode does not rest on the header copy.** It rests on two things the text already states:
 
 1. **Segmentation.** The area is dedicated I/O memory, and the kernel's control structures live outside it (`05-mapped.tex:14–19`). The owner's words: "carefully segmented kernel memory may be safely dedicated for user applications" (the week of 2026-11-24); "kernel memory segmentation which allows a net_admin user to access kernel memory safely" (2026-11-14).
-2. **Privilege.** Mapping the area requires `CAP_NET_ADMIN` (`05-mapped.tex:41–46`, and erratum 2). That privilege already covers the packets (statement 2 above): a process that holds it can already rewrite, drop and redirect every packet on the device, with tc or netfilter rules, or with an XDP program (which also needs `CAP_BPF`). The text says this once, where it names the capability.
+2. **Privilege.** Mapping the area requires `CAP_NET_ADMIN` (`05-mapped.tex:41–46`, and erratum 2). That privilege already covers the packets (statement 2 above): it administers the firewall and the routing tables, so a process that holds it can already rewrite, drop and redirect the device's packets. The text says this once, where it names the capability. The claim was checked against the kernel source: see "The privilege claim, checked" below.
 
 **The header-copy statements stay as they are until the owner decides.** Nobody removes them, expands them, or moves them forward in the argument.
 
@@ -48,6 +48,28 @@ Corrections to the paper text, each on the owner's word.
 
 1. How the paper handles the header copy: as a mechanism it describes, as a detail of the implementation, or not at all.
 2. Whether the paper presents time of check to time of use as the one new problem that mapping adds, with the header copy as its answer (statement 3 above).
+
+### The privilege claim, checked
+
+The owner asked on 2026-11-28 for this claim to be checked: "we need to be careful with this specific claim". It was checked that day against mainline kernel source.
+
+| Part of the claim | Verdict | Source |
+| --- | --- | --- |
+| `CAP_NET_ADMIN` already allows modifying, dropping and rerouting packets | True | The capability's definition lists administration of the IP firewall and masquerading, and modification of routing tables (`include/uapi/linux/capability.h`) |
+| "…with XDP eBPFs", as the example | Usable, as the second example | The same file: loading networking programs requires `CAP_NET_ADMIN` and `CAP_BPF`. The owner, 2026-11-28: "the cap_bpf is not a problem its safe to assume a person with net admin has cap ebpf". Name firewall and routing rules first: they rest on no assumption |
+| `RECV_ZC` requires the same privilege | True | `io_register_zcrx()` in `io_uring/zcrx.c` checks `capable(CAP_NET_ADMIN)`. The record says registration of the mapped area passes that same check (`maio_handover.md` §2.3 in `zc_proxy`) |
+| `RECV_ZC` is inconsistent to also require header split | Do not write | The comment on that check gives two reasons: interface queue allocation, and that the process "can observe data destined for sockets of other tasks". Neither is about headers, and that file has no header-split check |
+
+Two cautions on wording:
+
+- **Reading.** `CAP_NET_ADMIN` does not by itself let a process read other flows' payload: a packet socket needs `CAP_NET_RAW` (`capability.h`; `maio_handover.md` §2.3). For "the mapper sees every flow", cite the `RECV_ZC` comment in the table, not the capability's general powers.
+- **Writing after the fact.** Firewall rules change a packet in flight. A mapper can change bytes after the stack has checked them, or after they are queued for another socket. That difference in timing is open item 2 above. Write "no new authority over the device's traffic", never "nothing an administrator could not already do".
+
+Where the header-split requirement is enforced, and why, is in the background note below.
+
+Proposed wording, mine:
+
+> Mapping requires `CAP_NET_ADMIN`, the check io_uring's zero-copy receive already makes, and for the reason it gives: the process can observe data destined for other tasks. The same privilege already administers the firewall and the routing tables, so it can already rewrite, drop and redirect the device's packets.
 
 ### Where the text has the header copy
 
@@ -64,12 +86,14 @@ Leave each as it is.
 
 ### Background: why `RECV_ZC` requires header split
 
-The owner asked on 2026-11-28 why `RECV_ZC` needs header split when its user already holds `CAP_NET_ADMIN`.
+The owner asked on 2026-11-28 why `RECV_ZC` needs header split when its user already holds `CAP_NET_ADMIN`. Checked that day against mainline source and documentation.
 
-- **`RECV_ZC`.** It receives payload into the application's memory, and the stack does not read that memory: zcrx marks it unreadable "by policy, not necessity" (`supporting/novelty.md:327`). So headers have to land in ordinary kernel memory to be parsed at all. The kernel documentation gives this placement as the reason: headers are "received into kernel memory as normal", and payload goes directly into userspace memory (`docs.kernel.org/networking/iou-zcrx.html`, read 2026-11-28). Steering and RSS keep every other flow off that queue.
+- **`RECV_ZC`.** Its payload buffers come from a memory provider, and provider memory reaches the stack in a form the stack cannot read: the helper that returns a buffer's address returns NULL for it (`include/net/netmem.h`). So every header byte has to land in ordinary kernel memory, or the packet could not be parsed. The kernel documentation describes the placement: headers are "received into kernel memory as normal", and payload goes directly into userspace memory (`docs.kernel.org/networking/iou-zcrx.html`).
+- **Where it is enforced.** In the network core, for every memory provider and not only io_uring's. `__netif_mp_open_rxq()` in `net/core/netdev_rx_queue.c` refuses to bind a provider to a queue unless header split is enabled with a zero threshold, and refuses a device that has an XDP program attached. `io_uring/zcrx.c` has no such check of its own.
+- **What the sources do not say.** None of them gives a rationale for the requirement, and none ties it to distrust of the administrator. For io_uring's memory the unreadability is a choice of the present implementation: `netmem.h` says such memory may be readable or not, and that today's kinds are not (also `supporting/novelty.md:327`). Steering and RSS keep every other flow off the queue.
 - **Mapped mode.** Its area is kernel memory, and the stack reads it like any other receive buffer, so the device does not have to place anything elsewhere.
 
-**Still needed.** The statement in erratum 10, that `RECV_ZC` requires `CAP_NET_ADMIN`, wants a citation to the kernel source. The documentation page names no capability.
+**Source for the capability.** The documentation page names no capability. The check is in the kernel source: see "The privilege claim, checked" above.
 
 ### The project record
 
@@ -234,7 +258,7 @@ The text introduces the mode by a narrower need, and illustrates it with an edit
 | `05-mapped.tex:4` | "A service that transforms payload in place needs write access." | The same |
 | `05-mapped.tex:57–58` | "a relay can edit a fixed-width field at a returned offset and then send the object" | May stay as an illustration. It is not the motivation |
 
-**Source needed.** That `RECV_ZC` registration requires `CAP_NET_ADMIN` is not stated on the kernel's documentation page for it (read 2026-11-28). Table 1 says "administrative registration" (`02-borrowing.tex:34`). Cite the kernel source for the capability check where the text leans on it.
+**Source.** `RECV_ZC` registration checks `capable(CAP_NET_ADMIN)` in `io_register_zcrx()`, `io_uring/zcrx.c` (mainline, read 2026-11-28). The kernel's documentation page does not state it, so the citation is the source file. Table 1 says "administrative registration" (`02-borrowing.tex:34`) and can name the capability. The comment on the check gives its reason, which is the mapped mode's as well: the process can observe data destined for other tasks (erratum 1, "The privilege claim, checked").
 
 Proposed wording for the abstract, mine:
 
